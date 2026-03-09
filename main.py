@@ -449,10 +449,19 @@ def admin_dashboard():
                 st.info("No hay datos de actas para mostrar.")
 
     with tab3:
-        usuarios_lista = [u[0] for u in listar_usuarios(st.session_state.empresa_id)]
+        st.subheader("Gestión de Usuarios")
+        
+        df_usuarios = listar_usuarios(st.session_state.empresa_id)
+        if not df_usuarios.empty:
+            usuarios_lista = df_usuarios['username'].tolist()
+        else:
+            usuarios_lista = []
+
         if usuarios_lista:
+            st.write("Modificar o Eliminar Usuario")
             user_to_mod = st.selectbox("Seleccionar Usuario", usuarios_lista)
             col1, col2 = st.columns(2)
+            
             with col1:
                 nueva_pass = st.text_input("Nueva Contraseña", type="password")
                 if st.button("Actualizar Contraseña"):
@@ -461,6 +470,7 @@ def admin_dashboard():
                         st.success("Contraseña actualizada")
                     else:
                         st.warning("Escribe una contraseña valida")
+                        
             with col2:
                 if st.button("Eliminar Usuario", type="secondary"):
                     if user_to_mod != st.session_state.username:
@@ -470,15 +480,25 @@ def admin_dashboard():
                         st.rerun()
                     else:
                         st.error("No puedes eliminarte a ti mismo")
-                        
-            with st.form("crear_u"):
-                u = st.text_input("Nuevo Usuario")
-                p = st.text_input("Clave", type="password")
-                r = st.selectbox("Rol", ["tecnico", "admin"])
-                if st.form_submit_button("Registrar Nuevo Usuario"):
-                    if crear_usuario(u, p, r, "PROYECTOS_RPA"):
-                        st.success("Usuario creado")
+        
+        st.markdown("---")
+        st.write("Registrar Nuevo Usuario")
+        
+        with st.form("crear_u"):
+            u = st.text_input("Nuevo Usuario (Técnico)").strip().lower().replace(" ", "_")
+            p = st.text_input("Clave", type="password")
+            r = "tecnico" 
+            
+            if st.form_submit_button("Registrar Técnico"):
+                if u and p:
+                    if crear_usuario(u, p, r, st.session_state.empresa_id):
+                        st.success("Técnico creado exitosamente")
+                        time.sleep(1)
                         st.rerun()
+                    else:
+                        st.error("Error al crear. El nombre de usuario ya existe.")
+                else:
+                    st.warning("Por favor completa todos los campos.")
 
     with tab4:
         st.subheader("Variables del Sistema")

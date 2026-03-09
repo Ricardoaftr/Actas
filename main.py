@@ -57,7 +57,7 @@ def vista_superadmin_global():
     
     with tab1:
         st.subheader("Registrar Nueva Empresa")
-        
+
         with st.form("form_nueva_empresa"):
             c1, c2, c3 = st.columns(3)
             nombre_emp = c1.text_input("Nombre de la Empresa")
@@ -125,7 +125,7 @@ def formulario_asignacion_tareas():
         st.session_state.checklist_temporal = []
     
     carpetas = listar_carpetas_db()
-    tecnicos = listar_usuarios()
+    tecnicos = listar_usuarios(st.session_state.empresa_id)
     
     if not carpetas or not tecnicos:
         st.warning("Debe crear proyectos y usuarios técnicos primero.")
@@ -186,7 +186,7 @@ def formulario_asignacion_tareas():
     st.markdown("---")
     st.subheader(" Gestión de Tareas Activas")
     
-    df_tareas = listar_tareas_admin()
+    df_tareas = listar_tareas_admin(st.session_state.empresa_id)
     if not df_tareas.empty:
         activas = df_tareas[df_tareas['estado'] != 'Finalizada']
         
@@ -226,26 +226,46 @@ def formulario_asignacion_tareas():
             st.info("No hay tareas pendientes ni en proceso.")
 
 def login_screen():
-    st.subheader("Acceso al Portal de Actas")
+    st.title("Acceso al Sistema")
+    
     with st.form("login_form"):
-        user = st.text_input("Usuario")
-        pwd = st.text_input("Contraseña", type="password")
-        if st.form_submit_button("Entrar", use_container_width=True):
-            usuario_data = verificar_credenciales(user, pwd)
-            if usuario_data:
-                datos_sesion = f"{user}|{usuario_data['rol']}"
-                cookie_manager.set("token_sesion", datos_sesion, max_age=1800, key="set_tok")
-                
+        username = st.text_input("Usuario")
+        password = st.text_input("Contraseña", type="password")
+        submit_button = st.form_submit_button("Ingresar")
+
+        if submit_button:
+            exito, user, rol, empresa_id = verificar_credenciales(username, password)
+            if exito:
                 st.session_state.logged_in = True
                 st.session_state.username = user
-                st.session_state.rol = usuario_data["rol"]
-                st.session_state.empresa_id = usuario_data["empresa_id"]
+                st.session_state.rol = rol
+                st.session_state.empresa_id = empresa_id
+                
+                token_val = f"{user}|{rol}|{empresa_id}"
+                cookie_manager.set("token_sesion", token_val, expires_at=datetime.now() + pd.Timedelta(days=1))
+                st.query_params["session"] = token_val
+                
+                time.sleep(0.5)
                 st.rerun()
             else:
-                st.error("Credenciales incorrectas")
+                st.error("Usuario o contraseña incorrectos")
 
-    if st.button("Olvidaste tu contraseña? Contactar soporte"):
-        st.info("Por favor, solicita el restablecimiento a soporte tecnico.")
+    if submit_button:
+            exito, user, rol, empresa_id = verificar_credenciales(username, password)
+            if exito:
+                st.session_state.logged_in = True
+                st.session_state.username = user
+                st.session_state.rol = rol
+                st.session_state.empresa_id = empresa_id
+                
+                token_val = f"{user}|{rol}|{empresa_id}"
+                cookie_manager.set("token_sesion", token_val, expires_at=datetime.now() + pd.Timedelta(days=1))
+                st.query_params["session"] = token_val
+                
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                st.error("Usuario o contraseña incorrectos")
 
 def vista_gestion_proyectos():
     st.subheader("Explorador de Proyectos y Archivos")
@@ -365,7 +385,7 @@ def vista_gestion_proyectos():
             actas_print = obtener_actas_por_proyecto(sel_nombre)
             
             if actas_print:
-                df_p = pd.DataFrame(actas_print, columns=["ID", "Tecnico", "Nombre", "Fecha", "Ruta", "C_ID"])
+                df_p = pd.DataFrame(actas_print, columns=["ID", "Tecnico", "Nombre", "Fecha", "Ruta", "C_ID", "Empresa_ID"])
                 st.write(f"Se unificaran {len(df_p)} archivos.")
                 
                 if st.button("Generar y Descargar PDF Unificado"):
@@ -400,7 +420,7 @@ def admin_dashboard():
     with tab2:
         st.subheader("Rendimiento del Equipo")
         
-        t_actas, t_tareas, actas_vinc, actas_indep, actas_usr = obtener_metricas_dashboard()
+        t_actas, t_tareas, actas_vinc, actas_indep, actas_usr = obtener_metricas_dashboard(st.session_state.empresa_id)
         
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Actas Elaboradas", t_actas)
@@ -429,7 +449,7 @@ def admin_dashboard():
                 st.info("No hay datos de actas para mostrar.")
 
     with tab3:
-        usuarios_lista = [u[0] for u in listar_usuarios()]
+        usuarios_lista = [u[0] for u in listar_usuarios(st.session_state.empresa_id)]
         if usuarios_lista:
             user_to_mod = st.selectbox("Seleccionar Usuario", usuarios_lista)
             col1, col2 = st.columns(2)
@@ -471,7 +491,7 @@ def admin_dashboard():
 
 def vista_mis_tareas_tecnico():
     st.title("Mis Tareas Pendientes")
-    df_todas = listar_tareas_admin()
+    df_todas = listar_tareas_admin(st.session_state.empresa_id)
     
     if not df_todas.empty:
         mis_tareas = df_todas[df_todas['tecnico'] == st.session_state.username]
@@ -779,11 +799,13 @@ token_cookie = cookie_manager.get(cookie="token_sesion")
 token_activo = token_url if token_url else token_cookie
 
 if not st.session_state.logged_in and token_activo:
-    if "|" in str(token_activo):
-        user_token, rol_token = str(token_activo).split("|")
+    partes = str(token_activo).split("|")
+    if len(partes) == 3:
+        user_token, rol_token, emp_token = partes
         st.session_state.logged_in = True
         st.session_state.username = user_token
         st.session_state.rol = rol_token
+        st.session_state.empresa_id = emp_token
         
         if not token_url:
             st.query_params["session"] = token_activo
@@ -804,6 +826,10 @@ if st.sidebar.button("Cerrar Sesion"):
         pass 
         
     st.query_params.clear()
+    
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+        
     st.session_state.logged_in = False
     time.sleep(0.5)
     st.rerun()

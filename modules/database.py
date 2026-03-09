@@ -70,13 +70,14 @@ def crear_tarea_db(proyecto_id, tecnico, descripcion, prioridad, fecha_limite, c
     conn.commit()
     conn.close()
 
-def listar_tareas_admin():
+def listar_tareas_admin(empresa_id):
     conn = sqlite3.connect(DB_PATH)
     query = """SELECT t.*, c.nombre 
                FROM tareas t 
-               LEFT JOIN carpetas_proyectos c ON t.proyecto_id = c.id"""
+               LEFT JOIN carpetas_proyectos c ON t.proyecto_id = c.id
+               WHERE t.empresa_id = ?"""
     try:
-        df = pd.read_sql_query(query, conn)
+        df = pd.read_sql_query(query, conn, params=(empresa_id,))
     except Exception:
         df = pd.DataFrame()
     conn.close()
@@ -129,13 +130,15 @@ def crear_usuario(username, password, rol, empresa_id):
     conn.close()
     return exito
 
-def listar_usuarios():
+def listar_usuarios(empresa_id):
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT username, rol, empresa_id FROM usuarios")
-    res = c.fetchall()
+    query = "SELECT username, rol FROM usuarios WHERE empresa_id = ?"
+    try:
+        df = pd.read_sql_query(query, conn, params=(empresa_id,))
+    except Exception:
+        df = pd.DataFrame()
     conn.close()
-    return res
+    return df
 
 def actualizar_password(username, nueva_password):
     pwd_hash = hashlib.sha256(nueva_password.encode()).hexdigest()
@@ -239,20 +242,20 @@ def reasignar_tarea_db(id_tarea, nuevo_tecnico):
     conn.commit()
     conn.close()
 
-def obtener_metricas_dashboard():
+def obtener_metricas_dashboard(empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    c.execute("SELECT COUNT(*) FROM registros_actas")
+    c.execute("SELECT COUNT(*) FROM registros_actas WHERE empresa_id = ?", (empresa_id,))
     total_actas = c.fetchone()[0]
     
-    c.execute("SELECT COUNT(*) FROM tareas")
+    c.execute("SELECT COUNT(*) FROM tareas WHERE empresa_id = ?", (empresa_id,))
     total_tareas = c.fetchone()[0]
     
-    c.execute("SELECT COUNT(*) FROM tareas WHERE estado = 'Finalizada'")
+    c.execute("SELECT COUNT(*) FROM tareas WHERE estado = 'Finalizada' AND empresa_id = ?", (empresa_id,))
     actas_vinculadas = c.fetchone()[0]
     
-    c.execute("SELECT usuario, COUNT(*) as total FROM registros_actas GROUP BY usuario")
+    c.execute("SELECT usuario, COUNT(*) as total FROM registros_actas WHERE empresa_id = ? GROUP BY usuario", (empresa_id,))
     actas_usuarios = c.fetchall()
     
     conn.close()
@@ -262,6 +265,7 @@ def obtener_metricas_dashboard():
         actas_independientes = 0
         
     return total_actas, total_tareas, actas_vinculadas, actas_independientes, actas_usuarios
+
 def crear_empresa_db(nombre, plan, carpeta_drive_raiz):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()

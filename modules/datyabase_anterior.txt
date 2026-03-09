@@ -16,18 +16,14 @@ def init_db():
                  (clave TEXT PRIMARY KEY, valor INTEGER)''')
     c.execute("INSERT OR IGNORE INTO configuracion (clave, valor) VALUES ('ultimo_acta', 0)")
     
-    c.execute('''CREATE TABLE IF NOT EXISTS empresas 
-                 (id TEXT PRIMARY KEY, nombre TEXT, plan TEXT, carpeta_drive_raiz TEXT)''')
-    
     c.execute('''CREATE TABLE IF NOT EXISTS usuarios 
                  (username TEXT PRIMARY KEY, password_hash TEXT, rol TEXT, empresa_id TEXT)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS carpetas_proyectos 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                  nombre TEXT, 
+                  nombre TEXT UNIQUE, 
                   color TEXT, 
-                  notas TEXT,
-                  empresa_id TEXT)''')
+                  notas TEXT)''')
 
     c.execute('''CREATE TABLE IF NOT EXISTS registros_actas 
                  (id_acta TEXT PRIMARY KEY, 
@@ -35,8 +31,7 @@ def init_db():
                   proyecto_texto_libre TEXT, 
                   fecha TEXT, 
                   ruta_archivo TEXT,
-                  carpeta_id INTEGER,
-                  empresa_id TEXT)''')
+                  carpeta_id INTEGER)''')
 
     c.execute('''CREATE TABLE IF NOT EXISTS tareas 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -46,14 +41,22 @@ def init_db():
                   prioridad TEXT, 
                   estado TEXT, 
                   fecha_asignacion TEXT,
+                  fecha_limite TEXT)''')
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS tareas 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                  tecnico TEXT, 
+                  proyecto_id INTEGER, 
+                  descripcion TEXT, 
+                  prioridad TEXT, 
+                  estado TEXT, 
+                  fecha_asignacion TEXT,
                   fecha_limite TEXT,
-                  checklist TEXT DEFAULT '',
-                  empresa_id TEXT)''')
+                  checklist TEXT DEFAULT '')''')
+    
     
     try:
-        c.execute("ALTER TABLE carpetas_proyectos ADD COLUMN empresa_id TEXT")
-        c.execute("ALTER TABLE registros_actas ADD COLUMN empresa_id TEXT")
-        c.execute("ALTER TABLE tareas ADD COLUMN empresa_id TEXT")
+        c.execute("ALTER TABLE tareas ADD COLUMN checklist TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
         
@@ -128,7 +131,7 @@ def crear_usuario(username, password, rol, empresa_id):
         exito = False
     conn.close()
     return exito
-
+    
 def listar_usuarios():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()

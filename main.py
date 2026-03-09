@@ -13,6 +13,7 @@ import qrcode
 import pandas as pd
 import sqlite3
 import extra_streamlit_components as stx
+from modules.database import crear_empresa_db, listar_empresas_db, actualizar_plan_empresa_db
 from PIL import Image, ImageOps
 from datetime import datetime
 from modules.database import obtener_metricas_dashboard
@@ -49,6 +50,70 @@ CARPETA_SALIDA = "actas_generadas"
 if not os.path.exists(CARPETA_SALIDA):
     os.makedirs(CARPETA_SALIDA)
 
+def vista_superadmin_global():
+    st.title("Panel de Control Global - SaaS")
+    
+    tab1, tab2 = st.tabs(["Gestión de Empresas", "Métricas del Servidor"])
+    
+    with tab1:
+        st.subheader("Registrar Nueva Empresa")
+        
+        with st.form("form_nueva_empresa"):
+            c1, c2, c3 = st.columns(3)
+            nombre_emp = c1.text_input("Nombre de la Empresa")
+            plan_emp = c2.selectbox("Plan", ["Basico", "Plus", "Enterprise"])
+            carpeta_emp = c3.text_input("ID Carpeta Drive Raíz")
+            
+            st.markdown("---")
+            st.write("Usuario Administrador Principal")
+            
+            c4, c5, c6 = st.columns(3)
+            admin_user = c4.text_input("Usuario Admin").strip().lower().replace(" ", "_")
+            admin_pass = c5.text_input("Contraseña", type="password")
+            admin_pass_confirm = c6.text_input("Confirmar Contraseña", type="password")
+            
+            submit = st.form_submit_button("Crear Empresa y Admin")
+            
+            if submit:
+                if not (nombre_emp and admin_user and admin_pass and admin_pass_confirm):
+                    st.warning("Por favor, completa todos los campos.")
+                elif admin_pass != admin_pass_confirm:
+                    st.error("Las contraseñas no coinciden. Inténtalo de nuevo.")
+                else:
+                    nuevo_id = crear_empresa_db(nombre_emp, plan_emp, carpeta_emp)
+                    if crear_usuario(admin_user, admin_pass, "admin", nuevo_id):
+                        st.success(f"Empresa {nombre_emp} creada exitosamente con ID: {nuevo_id}")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Error al crear el usuario. El nombre podría estar en uso.")
+
+        st.markdown("---")
+        st.subheader("Empresas Activas")
+        df_empresas = listar_empresas_db()
+        
+        if not df_empresas.empty:
+            for _, emp in df_empresas.iterrows():
+                with st.container(border=True):
+                    col_info, col_plan = st.columns([3, 1])
+                    with col_info:
+                        st.write(f"**{emp['nombre']}** (ID: {emp['id']})")
+                        st.caption(f"Carpeta Drive: {emp['carpeta_drive_raiz']}")
+                    with col_plan:
+                        nuevo_plan = st.selectbox("Plan", ["Basico", "Plus", "Enterprise"], 
+                                                  index=["Basico", "Plus", "Enterprise"].index(emp['plan']),
+                                                  key=f"plan_{emp['id']}", 
+                                                  label_visibility="collapsed")
+                        if st.button("Actualizar", key=f"btn_plan_{emp['id']}", use_container_width=True):
+                            actualizar_plan_empresa_db(emp['id'], nuevo_plan)
+                            st.success("Plan actualizado")
+                            st.rerun()
+        else:
+            st.info("No hay empresas registradas en el sistema.")
+            
+    with tab2:
+        st.info("Métricas globales en construcción para la fase PostgreSQL.")
+        
 def limpiar_nombre_archivo(nombre):
     limpio = re.sub(r'[\\/*?:"<>|]', "", nombre)
     return limpio.strip()
@@ -325,7 +390,7 @@ def admin_dashboard():
         "Proyectos y Carpetas", 
         "Metricas y KPIs", 
         "Gestion de Usuarios", 
-        "Configuracion Global",
+        "Google Drive",
         "Seguridad"
     ])
 
@@ -743,18 +808,29 @@ if st.sidebar.button("Cerrar Sesion"):
     time.sleep(0.5)
     st.rerun()
 
-if st.session_state.rol == "admin":
-    opciones_menu = ["Asignacion de Tareas", "Administracion"]
-else:
+if st.session_state.rol == "superadmin":
+    opciones_menu = ["Panel Global SaaS"]
+    opcion = st.sidebar.selectbox("Navegacion", opciones_menu)
+    
+    if opcion == "Panel Global SaaS":
+        vista_superadmin_global()
+
+elif st.session_state.rol == "admin":
+    opciones_menu = ["Consola de Administracion", "Asignar Tareas", "Historial de Actas"] 
+    opcion = st.sidebar.selectbox("Navegacion", opciones_menu)
+    
+    if opcion == "Consola de Administracion":
+        admin_dashboard()
+    elif opcion == "Asignar Tareas":
+        formulario_asignacion_tareas()
+    elif opcion == "Historial de Actas":
+        vista_historial_actas()
+
+elif st.session_state.rol == "tecnico":
     opciones_menu = ["Mis Tareas", "Formulario de Acta"]
-
-seleccion = st.sidebar.radio("Ir a:", opciones_menu)
-
-if seleccion == "Administracion":
-    admin_dashboard()
-elif seleccion == "Asignacion de Tareas":
-    formulario_asignacion_tareas()
-elif seleccion == "Mis Tareas":
-    vista_mis_tareas_tecnico()
-elif seleccion == "Formulario de Acta":
-    formulario_acta()
+    opcion = st.sidebar.selectbox("Navegacion", opciones_menu)
+    
+    if opcion == "Mis Tareas":
+        vista_mis_tareas_tecnico()
+    elif opcion == "Formulario de Acta":
+        formulario_acta()

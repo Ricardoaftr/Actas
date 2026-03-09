@@ -283,7 +283,10 @@ def vista_gestion_proyectos():
     with t1:
         st.write("Actas en Bandeja de Entrada")
         conn = sqlite3.connect("data/database.sqlite")
-        df_pendientes = pd.read_sql_query("SELECT id_acta, usuario, proyecto_texto_libre, fecha FROM registros_actas WHERE carpeta_id IS NULL", conn)
+        
+        query = "SELECT id_acta, usuario, proyecto_texto_libre, fecha FROM registros_actas WHERE carpeta_id IS NULL AND empresa_id = ?"
+        df_pendientes = pd.read_sql_query(query, conn, params=(st.session_state.empresa_id,))
+        
         conn.close()
 
         if not df_pendientes.empty:
@@ -317,7 +320,7 @@ def vista_gestion_proyectos():
                         col = st.color_picker("Color de Etiqueta", "#8AC7FA")
                     not_ = st.text_area("Notas / Recordatorios")
                     if st.form_submit_button("Crear Carpeta"):
-                        if crear_carpeta_db(nom, col, not_):
+                        if crear_carpeta_db(nom, col, not_, st.session_state.empresa_id):
                             st.success("Carpeta creada")
                             st.rerun()
                         else:

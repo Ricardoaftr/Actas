@@ -163,21 +163,24 @@ def registrar_acta_db(id_acta, usuario, proyecto, fecha, ruta, carpeta_id=None):
     conn.commit()
     conn.close()
 
-def crear_carpeta_db(nombre, color, notas):
+def crear_carpeta_db(nombre, color, notas, empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     try:
-        c.execute("INSERT INTO carpetas_proyectos (nombre, color, notas) VALUES (?, ?, ?)", 
-                  (nombre, color, notas))
+        c.execute("INSERT INTO carpetas_proyectos (nombre, color, notas, empresa_id) VALUES (?, ?, ?, ?)", 
+                  (nombre, color, notas, empresa_id))
         conn.commit()
         return True
-    except: return False
-    finally: conn.close()
+    except: 
+        return False
+    finally: 
+        conn.close()
 
-def listar_carpetas_db():
+def listar_carpetas_db(empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT * FROM carpetas_proyectos")
+    # Filtramos para que solo devuelva las carpetas de esta empresa
+    c.execute("SELECT * FROM carpetas_proyectos WHERE empresa_id = ?", (empresa_id,))
     res = c.fetchall()
     conn.close()
     return res

@@ -119,19 +119,22 @@ def limpiar_nombre_archivo(nombre):
     return limpio.strip()
 
 def formulario_asignacion_tareas():
-    st.title("Asignar Nueva Tarea")
+    st.header("Asignar Nueva Tarea")
     
-    if "checklist_temporal" not in st.session_state:
-        st.session_state.checklist_temporal = []
+    df_tecnicos = listar_usuarios(st.session_state.empresa_id)
+    tecnicos = df_tecnicos['username'].tolist() if not df_tecnicos.empty else []
     
-    carpetas = listar_carpetas_db()
-    tecnicos = listar_usuarios(st.session_state.empresa_id)
-    
-    if not carpetas or not tecnicos:
-        st.warning("Debe crear proyectos y usuarios técnicos primero.")
+    carpetas_data = listar_carpetas_db(st.session_state.empresa_id)
+    if isinstance(carpetas_data, pd.DataFrame):
+        carpetas_vacias = carpetas_data.empty
+    else:
+        carpetas_vacias = not bool(carpetas_data)
+        
+    if carpetas_vacias or not tecnicos:
+        st.warning("Debes crear al menos una carpeta/sede y registrar un técnico para poder asignar tareas.")
         return
         
-    nombres_carpetas = {c[0]: c[1] for c in carpetas}
+    nombres_carpetas = {c[0]: c[1] for c in carpetas_data}
     nombres_tecnicos = [t[0] for t in tecnicos if t[2] != "admin"]
     
     col1, col2 = st.columns(2)
@@ -285,18 +288,21 @@ def vista_gestion_proyectos():
 
         if not df_pendientes.empty:
             st.dataframe(df_pendientes, use_container_width=True)
-            with st.form("form_clasificar"):
-                acta_sel = st.selectbox("Seleccionar Acta", df_pendientes["id_acta"].tolist())
-                carpetas = listar_carpetas_db()
-                if carpetas:
+            
+            carpetas = listar_carpetas_db(st.session_state.empresa_id)
+            
+            if carpetas:
+                with st.form("form_clasificar"):
+                    acta_sel = st.selectbox("Seleccionar Acta", df_pendientes["id_acta"].tolist())
                     dict_c = {c[1]: c[0] for c in carpetas}
                     destino = st.selectbox("Mover a carpeta oficial:", list(dict_c.keys()))
+                    
                     if st.form_submit_button("Confirmar Clasificacion"):
                         asignar_acta_a_carpeta(acta_sel, dict_c[destino])
                         st.success("Acta movida correctamente.")
                         st.rerun()
-                else:
-                    st.warning("Debes crear una carpeta primero.")
+            else:
+                st.warning("Debes crear una carpeta en el 'Explorador de Carpetas' primero para poder clasificar las actas.")
         else:
             st.info("No hay actas pendientes de clasificar.")
 
@@ -319,7 +325,7 @@ def vista_gestion_proyectos():
             
             st.markdown("---")
             
-            carpetas_list = listar_carpetas_db()
+            carpetas_list = listar_carpetas_db(st.session_state.empresa_id)
             if carpetas_list:
                 for c in carpetas_list:
                     with st.container(border=True):
@@ -369,7 +375,7 @@ def vista_gestion_proyectos():
                 
                 with st.expander("Mover archivo a otra carpeta"):
                     acta_id_mover = st.selectbox("Elegir ID de acta", df_interna["ID"].tolist())
-                    todas_c = listar_carpetas_db()
+                    todas_c = listar_carpetas_db(st.session_state.empresa_id)
                     dict_all = {c[1]: c[0] for c in todas_c}
                     nueva_c = st.selectbox("Mover a:", list(dict_all.keys()))
                     if st.button("Ejecutar Cambio"):
@@ -379,7 +385,7 @@ def vista_gestion_proyectos():
                 st.info("Esta carpeta esta vacia.")
 
     with t3:
-        carpetas = listar_carpetas_db()
+        carpetas = listar_carpetas_db(st.session_state.empresa_id)
         if carpetas:
             sel_nombre = st.selectbox("Seleccionar carpeta para imprimir", [c[1] for c in carpetas])
             actas_print = obtener_actas_por_proyecto(sel_nombre)
@@ -449,56 +455,80 @@ def admin_dashboard():
                 st.info("No hay datos de actas para mostrar.")
 
     with tab3:
-        st.subheader("Gestión de Usuarios")
-        
-        df_usuarios = listar_usuarios(st.session_state.empresa_id)
-        if not df_usuarios.empty:
-            usuarios_lista = df_usuarios['username'].tolist()
-        else:
-            usuarios_lista = []
+            st.subheader("Gestion de Usuarios")
+            
+            st.markdown("""
+                <style>
+                input[type="password"]::-ms-reveal,
+                input[type="password"]::-ms-clear {
+                    display: none;
+                }
+                </style>
+            """, unsafe_allow_html=True)
+            
+            df_usuarios = listar_usuarios(st.session_state.empresa_id)
+            if not df_usuarios.empty:
+                usuarios_lista = df_usuarios['username'].tolist()
+            else:
+                usuarios_lista = []
 
-        if usuarios_lista:
-            st.write("Modificar o Eliminar Usuario")
-            user_to_mod = st.selectbox("Seleccionar Usuario", usuarios_lista)
-            col1, col2 = st.columns(2)
+            if usuarios_lista:
+                st.write("Modificar o Eliminar Usuario")
+                user_to_mod = st.selectbox("Seleccionar Usuario", usuarios_lista)
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    nueva_pass = st.text_input("Nueva Contraseña", type="password")
+                    if st.button("Actualizar Contraseña"):
+                        if nueva_pass:
+                            actualizar_password(user_to_mod, nueva_pass)
+                            st.success("Contraseña actualizada")
+                        else:
+                            st.warning("Escribe una contraseña valida")
+                            
+                with col2:
+                    st.write("")
+                    st.write("")
+                    
+                    if st.button("Eliminar Usuario", type="secondary"):
+                        st.session_state.confirmar_eliminacion = user_to_mod
+
+                if st.session_state.get("confirmar_eliminacion") == user_to_mod:
+                    st.error(f"Advertencia: ¿Estas totalmente seguro de eliminar al usuario '{user_to_mod}'?")
+                    c_conf1, c_conf2 = st.columns(2)
+                    with c_conf1:
+                        if st.button("Si, eliminar definitivamente", type="primary"):
+                            if user_to_mod != st.session_state.username:
+                                eliminar_usuario(user_to_mod)
+                                st.success("Usuario eliminado")
+                                st.session_state.confirmar_eliminacion = None
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Proteccion de sistema: No puedes eliminarte a ti mismo.")
+                    with c_conf2:
+                        if st.button("Cancelar"):
+                            st.session_state.confirmar_eliminacion = None
+                            st.rerun()
             
-            with col1:
-                nueva_pass = st.text_input("Nueva Contraseña", type="password")
-                if st.button("Actualizar Contraseña"):
-                    if nueva_pass:
-                        actualizar_password(user_to_mod, nueva_pass)
-                        st.success("Contraseña actualizada")
-                    else:
-                        st.warning("Escribe una contraseña valida")
-                        
-            with col2:
-                if st.button("Eliminar Usuario", type="secondary"):
-                    if user_to_mod != st.session_state.username:
-                        eliminar_usuario(user_to_mod)
-                        st.success("Usuario eliminado")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error("No puedes eliminarte a ti mismo")
-        
-        st.markdown("---")
-        st.write("Registrar Nuevo Usuario")
-        
-        with st.form("crear_u"):
-            u = st.text_input("Nuevo Usuario (Técnico)").strip().lower().replace(" ", "_")
-            p = st.text_input("Clave", type="password")
-            r = "tecnico" 
+            st.markdown("---")
+            st.write("Registrar Nuevo Usuario")
             
-            if st.form_submit_button("Registrar Técnico"):
-                if u and p:
-                    if crear_usuario(u, p, r, st.session_state.empresa_id):
-                        st.success("Técnico creado exitosamente")
-                        time.sleep(1)
-                        st.rerun()
+            with st.form("crear_u", clear_on_submit=True):
+                u = st.text_input("Nuevo Usuario (Tecnico)").strip().lower().replace(" ", "_")
+                p = st.text_input("Clave", type="password")
+                r = "tecnico" 
+                
+                if st.form_submit_button("Registrar Tecnico"):
+                    if u and p:
+                        if crear_usuario(u, p, r, st.session_state.empresa_id):
+                            st.success("Tecnico creado exitosamente")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("Error al crear. El nombre de usuario ya existe.")
                     else:
-                        st.error("Error al crear. El nombre de usuario ya existe.")
-                else:
-                    st.warning("Por favor completa todos los campos.")
+                        st.warning("Por favor completa todos los campos.")
 
     with tab4:
         st.subheader("Variables del Sistema")
@@ -508,6 +538,29 @@ def admin_dashboard():
     with tab5:
         st.subheader("Registro de Auditoria")
         st.info("Log de seguridad: Monitoreo de accesos y cambios en la base de datos.")
+
+def vista_historial_actas():
+    st.header("Historial Global de Actas")
+    st.write("Visualiza todas las actas generadas por tus técnicos.")
+    
+    conn = sqlite3.connect("data/database.sqlite")
+    query = """
+        SELECT r.id_acta as ID, r.usuario as Tecnico, r.fecha as Fecha, c.nombre as Proyecto, r.ruta_archivo as Enlace
+        FROM registros_actas r
+        LEFT JOIN carpetas_proyectos c ON r.carpeta_id = c.id
+        WHERE r.empresa_id = ?
+        ORDER BY r.fecha DESC
+    """
+    try:
+        df_actas = pd.read_sql_query(query, conn, params=(st.session_state.empresa_id,))
+    except Exception:
+        df_actas = pd.DataFrame()
+    conn.close()
+    
+    if not df_actas.empty:
+        st.dataframe(df_actas, use_container_width=True, hide_index=True)
+    else:
+        st.info("Aún no hay actas registradas en el sistema para tu empresa.")
 
 def vista_mis_tareas_tecnico():
     st.title("Mis Tareas Pendientes")

@@ -60,15 +60,21 @@ def init_db():
     conn.commit()
     conn.close()
 
-def crear_tarea_db(proyecto_id, tecnico, descripcion, prioridad, fecha_limite, checklist=""):
-    conn = sqlite3.connect(DB_PATH) # AQUÍ ESTABA EL ERROR (antes decía 'actas.db')
+def crear_tarea_db(proyecto_id, tecnico, descripcion, prioridad, fecha_limite, checklist, empresa_id):
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("""
-        INSERT INTO tareas (proyecto_id, tecnico, descripcion, prioridad, fecha_limite, estado, checklist)
-        VALUES (?, ?, ?, ?, ?, 'Pendiente', ?)
-    """, (proyecto_id, tecnico, descripcion, prioridad, fecha_limite, checklist))
-    conn.commit()
-    conn.close()
+    try:
+        c.execute("""
+            INSERT INTO tareas (proyecto_id, tecnico, descripcion, prioridad, fecha_limite, estado, checklist, empresa_id)
+            VALUES (?, ?, ?, ?, ?, 'Pendiente', ?, ?)
+        """, (proyecto_id, tecnico, descripcion, prioridad, fecha_limite, checklist, empresa_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error al crear tarea: {e}")
+        return False
+    finally:
+        conn.close()
 
 def listar_tareas_admin(empresa_id):
     conn = sqlite3.connect(DB_PATH)
@@ -155,13 +161,20 @@ def eliminar_usuario(username):
     conn.commit()
     conn.close()
 
-def registrar_acta_db(id_acta, usuario, proyecto, fecha, ruta, carpeta_id=None):
+def registrar_acta_db(id_acta, usuario, proyecto, fecha, ruta, carpeta_id=None, empresa_id=None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO registros_actas VALUES (?, ?, ?, ?, ?, ?)", 
-              (id_acta, usuario, proyecto, fecha, ruta, carpeta_id))
-    conn.commit()
-    conn.close()
+    try:
+        c.execute("""
+            INSERT INTO registros_actas 
+            (id_acta, usuario, proyecto_texto_libre, fecha, ruta_archivo, carpeta_id, empresa_id) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (id_acta, usuario, proyecto, fecha, ruta, carpeta_id, empresa_id))
+        conn.commit()
+    except Exception as e:
+        print(f"Error al registrar acta: {e}")
+    finally:
+        conn.close()
 
 def crear_carpeta_db(nombre, color, notas, empresa_id):
     conn = sqlite3.connect(DB_PATH)

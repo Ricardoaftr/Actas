@@ -121,6 +121,9 @@ def limpiar_nombre_archivo(nombre):
 def formulario_asignacion_tareas():
     st.header("Asignar Nueva Tarea")
     
+    if "checklist_temporal" not in st.session_state:
+        st.session_state.checklist_temporal = []
+        
     df_tecnicos = listar_usuarios(st.session_state.empresa_id)
     tecnicos = df_tecnicos['username'].tolist() if not df_tecnicos.empty else []
     
@@ -135,7 +138,7 @@ def formulario_asignacion_tareas():
         return
         
     nombres_carpetas = {c[0]: c[1] for c in carpetas_data}
-    nombres_tecnicos = [t[0] for t in tecnicos if t[2] != "admin"]
+    nombres_tecnicos = [t for t in tecnicos if t != st.session_state.username]
     
     col1, col2 = st.columns(2)
     with col1:
@@ -176,7 +179,7 @@ def formulario_asignacion_tareas():
         if descripcion and tecnico_sel:
             checklist_final = "\n".join(st.session_state.checklist_temporal)
             
-            crear_tarea_db(proyecto_sel, tecnico_sel, descripcion, prioridad, fecha_limite, checklist_final)
+            crear_tarea_db(proyecto_sel, tecnico_sel, descripcion, prioridad, fecha_limite, checklist_final, st.session_state.empresa_id)
             
             st.session_state.checklist_temporal = []
             
@@ -358,9 +361,13 @@ def vista_gestion_proyectos():
                                         editar_carpeta_db(c[0], enom, ecol, enot)
                                         st.rerun()
                                 st.markdown("---")
-                                if st.button("Eliminar", key=f"del_{c[0]}", type="primary", use_container_width=True):
-                                    eliminar_carpeta_db(c[0])
-                                    st.rerun()
+                                st.warning("Acción irreversible")
+                                confirmacion = st.checkbox("Confirmar eliminación", key=f"chk_del_{c[0]}")
+                                
+                                if confirmacion:
+                                    if st.button("Eliminar Definitivamente", key=f"del_{c[0]}", type="primary", use_container_width=True):
+                                        eliminar_carpeta_db(c[0])
+                                        st.rerun()
             else:
                 st.info("No hay carpetas creadas.")
         else:
@@ -373,7 +380,7 @@ def vista_gestion_proyectos():
             
             actas_en_carpeta = obtener_actas_por_proyecto(st.session_state.folder_actual_nom)
             if actas_en_carpeta:
-                df_interna = pd.DataFrame(actas_en_carpeta, columns=["ID", "Tecnico", "Nombre", "Fecha", "Ruta", "C_ID"])
+                df_interna = pd.DataFrame(actas_en_carpeta, columns=["ID", "Tecnico", "Nombre", "Fecha", "Ruta", "C_ID", "Empresa_ID"])
                 st.table(df_interna[["ID", "Tecnico", "Fecha", "Nombre"]])
                 
                 with st.expander("Mover archivo a otra carpeta"):
@@ -856,7 +863,7 @@ def formulario_acta():
 
         if exito:
             guardar_nuevo_consecutivo(id_numero_raw)
-            registrar_acta_db(id_acta, st.session_state.username, nombre_proyecto_carpeta, fecha.strftime("%Y-%m-%d"), ruta_pdf)
+            registrar_acta_db(id_acta, st.session_state.username, nombre_proyecto_carpeta, fecha.strftime("%Y-%m-%d"), ruta_pdf, carpeta_id=None, empresa_id=st.session_state.empresa_id)
             
             st.success(f"Acta {id_acta} enviada.")
             time.sleep(1)

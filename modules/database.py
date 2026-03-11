@@ -90,22 +90,22 @@ def listar_tareas_admin(empresa_id):
     return df
 
 
-def actualizar_estado_tarea(id_tarea, nuevo_estado):
+def actualizar_estado_tarea(id_tarea, nuevo_estado, empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("UPDATE tareas SET estado = ? WHERE id = ?", (nuevo_estado, id_tarea))
+    c.execute("UPDATE tareas SET estado = ? WHERE id = ? AND empresa_id = ?", (nuevo_estado, id_tarea, empresa_id))
     conn.commit()
     conn.close()
 
-def obtener_siguiente_id():
-    init_db()
+def obtener_siguiente_id(empresa_id):
+    clave = f"ultimo_acta_{empresa_id}"
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT valor FROM configuracion WHERE clave='ultimo_acta'")
-    ultimo = c.fetchone()[0]
+    c.execute("SELECT valor FROM configuracion WHERE clave = ?", (clave,))
+    row = c.fetchone()
+    siguiente = row[0] + 1 if row else 1
     conn.close()
-    siguiente = ultimo + 1
-    return f"ACT-{siguiente:03d}", siguiente
+    return f"ACT-{siguiente:03d}"
 
 def obtener_usuario(username):
     conn = sqlite3.connect(DB_PATH)
@@ -115,10 +115,16 @@ def obtener_usuario(username):
     conn.close()
     return res
 
-def guardar_nuevo_consecutivo(numero):
+def guardar_nuevo_consecutivo(empresa_id):
+    clave = f"ultimo_acta_{empresa_id}"
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("UPDATE configuracion SET valor=? WHERE clave='ultimo_acta'", (numero,))
+    c.execute("SELECT valor FROM configuracion WHERE clave = ?", (clave,))
+    row = c.fetchone()
+    if row:
+        c.execute("UPDATE configuracion SET valor = valor + 1 WHERE clave = ?", (clave,))
+    else:
+        c.execute("INSERT INTO configuracion (clave, valor) VALUES (?, 1)", (clave,))
     conn.commit()
     conn.close()
 
@@ -146,18 +152,18 @@ def listar_usuarios(empresa_id):
     conn.close()
     return df
 
-def actualizar_password(username, nueva_password):
+def actualizar_password(username, nueva_password, empresa_id):
     pwd_hash = hashlib.sha256(nueva_password.encode()).hexdigest()
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("UPDATE usuarios SET password_hash = ? WHERE username = ?", (pwd_hash, username))
+    c.execute("UPDATE usuarios SET password_hash = ? WHERE username = ? AND empresa_id = ?", (pwd_hash, username, empresa_id))
     conn.commit()
     conn.close()
 
-def eliminar_usuario(username):
+def eliminar_usuario(username, empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("DELETE FROM usuarios WHERE username = ?", (username,))
+    c.execute("DELETE FROM usuarios WHERE username = ? AND empresa_id = ?", (username, empresa_id))
     conn.commit()
     conn.close()
 
@@ -179,12 +185,19 @@ def registrar_acta_db(id_acta, usuario, proyecto, fecha, ruta, carpeta_id=None, 
 def crear_carpeta_db(nombre, color, notas, empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    
+    c.execute("SELECT id FROM carpetas_proyectos WHERE nombre = ? AND empresa_id = ?", (nombre, empresa_id))
+    if c.fetchone():
+        conn.close()
+        return False 
+        
     try:
         c.execute("INSERT INTO carpetas_proyectos (nombre, color, notas, empresa_id) VALUES (?, ?, ?, ?)", 
                   (nombre, color, notas, empresa_id))
         conn.commit()
         return True
-    except: 
+    except Exception as e:
+        print(f"Error crítico en BD al crear carpeta: {e}")
         return False
     finally: 
         conn.close()
@@ -198,45 +211,45 @@ def listar_carpetas_db(empresa_id):
     conn.close()
     return res
 
-def asignar_acta_a_carpeta(id_acta, carpeta_id):
+def asignar_acta_a_carpeta(id_acta, carpeta_id, empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("UPDATE registros_actas SET carpeta_id = ? WHERE id_acta = ?", (carpeta_id, id_acta))
+    c.execute("UPDATE registros_actas SET carpeta_id = ? WHERE id_acta = ? AND empresa_id = ?", (carpeta_id, id_acta, empresa_id))
     conn.commit()
     conn.close()
 
-def obtener_historial_proyectos():
+def obtener_historial_proyectos(empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT DISTINCT nombre FROM carpetas_proyectos")
+    c.execute("SELECT DISTINCT nombre FROM carpetas_proyectos WHERE empresa_id = ?", (empresa_id,))
     res = [row[0] for row in c.fetchall()]
     conn.close()
     return res
 
-def obtener_actas_por_proyecto(nombre_carpeta):
+def obtener_actas_por_proyecto(nombre_carpeta, empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""SELECT r.* FROM registros_actas r 
                  JOIN carpetas_proyectos c ON r.carpeta_id = c.id 
-                 WHERE c.nombre = ?""", (nombre_carpeta,))
+                 WHERE c.nombre = ? AND c.empresa_id = ?""", (nombre_carpeta, empresa_id))
     res = c.fetchall()
     conn.close()
     return res
 
-def eliminar_carpeta_db(id_carpeta):
+def eliminar_carpeta_db(id_carpeta, empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("UPDATE registros_actas SET carpeta_id = NULL WHERE carpeta_id = ?", (id_carpeta,))
-    c.execute("DELETE FROM carpetas_proyectos WHERE id = ?", (id_carpeta,))
+    c.execute("UPDATE registros_actas SET carpeta_id = NULL WHERE carpeta_id = ? AND empresa_id = ?", (id_carpeta, empresa_id))
+    c.execute("DELETE FROM carpetas_proyectos WHERE id = ? AND empresa_id = ?", (id_carpeta, empresa_id))
     conn.commit()
     conn.close()
 
-def editar_carpeta_db(id_carpeta, nombre, color, notas):
+def editar_carpeta_db(id_carpeta, nombre, color, notas, empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     try:
-        c.execute("UPDATE carpetas_proyectos SET nombre = ?, color = ?, notas = ? WHERE id = ?", 
-                  (nombre, color, notas, id_carpeta))
+        c.execute("UPDATE carpetas_proyectos SET nombre = ?, color = ?, notas = ? WHERE id = ? AND empresa_id = ?", 
+                  (nombre, color, notas, id_carpeta, empresa_id))
         conn.commit()
         return True
     except:
@@ -244,17 +257,17 @@ def editar_carpeta_db(id_carpeta, nombre, color, notas):
     finally:
         conn.close()
 
-def eliminar_tarea_db(id_tarea):
+def eliminar_tarea_db(id_tarea, empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("DELETE FROM tareas WHERE id = ?", (id_tarea,))
+    c.execute("DELETE FROM tareas WHERE id = ? AND empresa_id = ?", (id_tarea, empresa_id))
     conn.commit()
     conn.close()
 
-def reasignar_tarea_db(id_tarea, nuevo_tecnico):
+def reasignar_tarea_db(id_tarea, nuevo_tecnico, empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("UPDATE tareas SET tecnico = ? WHERE id = ?", (nuevo_tecnico, id_tarea))
+    c.execute("UPDATE tareas SET tecnico = ? WHERE id = ? AND empresa_id = ?", (nuevo_tecnico, id_tarea, empresa_id))
     conn.commit()
     conn.close()
 
@@ -309,3 +322,46 @@ def actualizar_plan_empresa_db(empresa_id, nuevo_plan):
     c.execute("UPDATE empresas SET plan = ? WHERE id = ?", (nuevo_plan, empresa_id))
     conn.commit()
     conn.close()
+
+def eliminar_empresa_db(empresa_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    try:
+        c.execute("DELETE FROM tareas WHERE empresa_id = ?", (empresa_id,))
+        c.execute("DELETE FROM registros_actas WHERE empresa_id = ?", (empresa_id,))
+        c.execute("DELETE FROM carpetas_proyectos WHERE empresa_id = ?", (empresa_id,))
+        c.execute("DELETE FROM usuarios WHERE empresa_id = ?", (empresa_id,))
+        c.execute("DELETE FROM configuracion WHERE clave = ?", (f"ultimo_acta_{empresa_id}",))
+        c.execute("DELETE FROM empresas WHERE id = ?", (empresa_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error crítico al eliminar empresa: {e}")
+        return False
+    finally:
+        conn.close()
+
+def eliminar_usuario_global(username):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM usuarios WHERE username = ?", (username,))
+    
+    filas_afectadas = c.rowcount 
+    
+    conn.commit()
+    conn.close()
+    
+    return filas_afectadas > 0
+
+def resetear_password_superadmin(username, nueva_password):
+    pwd_hash = hashlib.sha256(nueva_password.encode()).hexdigest()
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    c.execute("UPDATE usuarios SET password_hash = ? WHERE username = ?", (pwd_hash, username))
+    filas_afectadas = c.rowcount
+    
+    conn.commit()
+    conn.close()
+    
+    return filas_afectadas > 0

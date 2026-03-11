@@ -16,11 +16,13 @@ import extra_streamlit_components as stx
 from modules.database import crear_empresa_db, listar_empresas_db, actualizar_plan_empresa_db
 from PIL import Image, ImageOps
 from datetime import datetime
+from modules.database import eliminar_empresa_db, eliminar_usuario_global
 from modules.database import obtener_metricas_dashboard
 from modules.utils import limpiar_archivos_temporales
 from streamlit_drawable_canvas import st_canvas
 from streamlit_js_eval import get_geolocation
 from dotenv import load_dotenv
+from modules.database import resetear_password_superadmin
 from modules.database import (crear_tarea_db, listar_tareas_admin)
 from modules.database import actualizar_estado_tarea
 from modules.database import eliminar_tarea_db, reasignar_tarea_db
@@ -110,9 +112,67 @@ def vista_superadmin_global():
                             st.rerun()
         else:
             st.info("No hay empresas registradas en el sistema.")
+
             
     with tab2:
         st.info("Métricas globales en construcción para la fase PostgreSQL.")
+
+        st.markdown("---")
+        st.subheader("Super Admin")
+        
+        col_peligro1, col_peligro2, col_peligro3 = st.columns(3)
+        
+        with col_peligro1:
+            st.write("### Eliminar Empresa Completa")
+            if not df_empresas.empty:
+                dict_empresas = {row['nombre']: row['id'] for _, row in df_empresas.iterrows()}
+                empresa_a_borrar = st.selectbox("Seleccionar Empresa", list(dict_empresas.keys()))
+                
+                check_borrar_empresa = st.checkbox(f"Confirmar destrucción de '{empresa_a_borrar}'")
+                if check_borrar_empresa:
+                    if st.button("Aniquilar Empresa", type="primary"):
+                        if eliminar_empresa_db(dict_empresas[empresa_a_borrar]):
+                            st.success("Empresa eliminada de la faz del servidor.")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("Error al eliminar la empresa.")
+            else:
+                st.info("No hay empresas registradas.")
+
+        with col_peligro2:
+            st.write("Eliminar Admins")
+            user_fantasma = st.text_input("Escribe el 'username' exacto a eliminar:")
+            
+            check_borrar_user = st.checkbox("Confirmar eliminación global")
+            if check_borrar_user and user_fantasma:
+                if st.button("Eliminar Usuario", type="primary"):
+                    if user_fantasma != st.session_state.username:
+                        
+                        if eliminar_usuario_global(user_fantasma):
+                            st.success(f"Usuario '{user_fantasma}' eliminado del sistema.")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.warning(f"El usuario '{user_fantasma}' no existe en la base de datos.")
+                            
+                    else:
+                        st.error("No puedes eliminarte a ti mismo (Super Admin).")
+
+        with col_peligro3:
+            st.write("Resetear Contraseña")            
+            user_reset = st.text_input("Username del usuario (Admin o Técnico):")
+            nueva_pass = st.text_input("Asignar nueva contraseña:", type="password")
+            
+            if st.button("Forzar Cambio de Clave", type="primary"):
+                if user_reset and nueva_pass:
+                    if resetear_password_superadmin(user_reset, nueva_pass):
+                        st.success(f"¡Éxito! La contraseña de '{user_reset}' ha sido actualizada.")
+                    else:
+                        st.error(f"El usuario '{user_reset}' no existe en la base de datos.")
+                else:
+                    st.warning("Debes escribir el usuario y la nueva contraseña.")
+                        
         
 def limpiar_nombre_archivo(nombre):
     limpio = re.sub(r'[\\/*?:"<>|]', "", nombre)
@@ -217,7 +277,7 @@ def formulario_asignacion_tareas():
                         
                         if st.button("Reasignar", key=f"re_btn_{tarea['id']}", use_container_width=True):
                             if nuevo_tec:
-                                reasignar_tarea_db(tarea['id'], nuevo_tec)
+                                reasignar_tarea_db(tarea['id'], nuevo_tec, st.session_state.empresa_id)
                                 st.success(f"Reasignada a {nuevo_tec}")
                                 time.sleep(0.5)
                                 st.rerun()
@@ -226,7 +286,7 @@ def formulario_asignacion_tareas():
                                 
                     with c_eliminar:
                         if st.button("🗑️ Eliminar", key=f"del_{tarea['id']}", type="primary", use_container_width=True):
-                            eliminar_tarea_db(tarea['id'])
+                            eliminar_tarea_db(tarea['id'],st.session_state.empresa_id)
                             st.rerun()
         else:
             st.info("No hay tareas pendientes ni en proceso.")
@@ -304,7 +364,7 @@ def vista_gestion_proyectos():
                     destino = st.selectbox("Mover a carpeta oficial:", list(dict_c.keys()))
                     
                     if st.form_submit_button("Confirmar Clasificacion"):
-                        asignar_acta_a_carpeta(acta_sel, dict_c[destino])
+                        asignar_acta_a_carpeta(acta_sel, dict_c[destino], st.session_state.empresa_id)
                         st.success("Acta movida correctamente.")
                         st.rerun()
             else:
@@ -358,7 +418,7 @@ def vista_gestion_proyectos():
                                     ecol = st.color_picker("Color", value=c[2])
                                     enot = st.text_area("Notas", value=c[3])
                                     if st.form_submit_button("Guardar", use_container_width=True):
-                                        editar_carpeta_db(c[0], enom, ecol, enot)
+                                        editar_carpeta_db(c[0], enom, ecol, enot, st.session_state.empresa_id)
                                         st.rerun()
                                 st.markdown("---")
                                 st.warning("Acción irreversible")
@@ -366,7 +426,7 @@ def vista_gestion_proyectos():
                                 
                                 if confirmacion:
                                     if st.button("Eliminar Definitivamente", key=f"del_{c[0]}", type="primary", use_container_width=True):
-                                        eliminar_carpeta_db(c[0])
+                                        eliminar_carpeta_db(c[0], st.session_state.empresa_id)
                                         st.rerun()
             else:
                 st.info("No hay carpetas creadas.")
@@ -378,7 +438,7 @@ def vista_gestion_proyectos():
                 
             st.markdown(f"### Contenido de: **{st.session_state.folder_actual_nom}**")
             
-            actas_en_carpeta = obtener_actas_por_proyecto(st.session_state.folder_actual_nom)
+            actas_en_carpeta = obtener_actas_por_proyecto(st.session_state.folder_actual_nom, st.session_state.empresa_id)
             if actas_en_carpeta:
                 df_interna = pd.DataFrame(actas_en_carpeta, columns=["ID", "Tecnico", "Nombre", "Fecha", "Ruta", "C_ID", "Empresa_ID"])
                 st.table(df_interna[["ID", "Tecnico", "Fecha", "Nombre"]])
@@ -389,7 +449,7 @@ def vista_gestion_proyectos():
                     dict_all = {c[1]: c[0] for c in todas_c}
                     nueva_c = st.selectbox("Mover a:", list(dict_all.keys()))
                     if st.button("Ejecutar Cambio"):
-                        asignar_acta_a_carpeta(acta_id_mover, dict_all[nueva_c])
+                        asignar_acta_a_carpeta(acta_id_mover, dict_all[nueva_c],st.session_state.empresa_id)
                         st.rerun()
             else:
                 st.info("Esta carpeta esta vacia.")
@@ -398,7 +458,7 @@ def vista_gestion_proyectos():
         carpetas = listar_carpetas_db(st.session_state.empresa_id)
         if carpetas:
             sel_nombre = st.selectbox("Seleccionar carpeta para imprimir", [c[1] for c in carpetas])
-            actas_print = obtener_actas_por_proyecto(sel_nombre)
+            actas_print = obtener_actas_por_proyecto(sel_nombre, st.session_state.empresa_id)
             
             if actas_print:
                 df_p = pd.DataFrame(actas_print, columns=["ID", "Tecnico", "Nombre", "Fecha", "Ruta", "C_ID", "Empresa_ID"])
@@ -491,7 +551,7 @@ def admin_dashboard():
                     nueva_pass = st.text_input("Nueva Contraseña", type="password")
                     if st.button("Actualizar Contraseña"):
                         if nueva_pass:
-                            actualizar_password(user_to_mod, nueva_pass)
+                            actualizar_password(user_to_mod, nueva_pass, st.session_state.empresa_id)
                             st.success("Contraseña actualizada")
                         else:
                             st.warning("Escribe una contraseña valida")
@@ -509,7 +569,7 @@ def admin_dashboard():
                     with c_conf1:
                         if st.button("Si, eliminar definitivamente", type="primary"):
                             if user_to_mod != st.session_state.username:
-                                eliminar_usuario(user_to_mod)
+                                eliminar_usuario(user_to_mod, st.session_state.empresa_id)
                                 st.success("Usuario eliminado")
                                 st.session_state.confirmar_eliminacion = None
                                 time.sleep(1)
@@ -609,7 +669,7 @@ def vista_mis_tareas_tecnico():
                         
                         if tarea['estado'] == "Pendiente":
                             if st.button("Iniciar Trabajo", disabled=not todo_marcado, key=f"start_{tarea['id']}", use_container_width=True):
-                                actualizar_estado_tarea(tarea['id'], "En Proceso")
+                                actualizar_estado_tarea(tarea['id'], "En Proceso", st.session_state.empresa_id)
                                 st.success("Tarea iniciada")
                                 st.rerun()
                                 
@@ -634,8 +694,9 @@ def formulario_acta():
         st.subheader("1. Datos Generales")
         c1, c2 = st.columns(2)
         with c1:
-            id_actual_texto, id_numero_raw = obtener_siguiente_id()
-            id_acta = st.text_input("ID Acta", value=id_actual_texto, disabled=True)
+            # 1. Obtenemos el ID enviando el empresa_id
+            id_acta = obtener_siguiente_id(st.session_state.empresa_id)
+            st.text_input("ID Acta", value=id_acta, disabled=True)
             fecha = st.date_input("Fecha", datetime.today())
         with c2:
             ciudad = st.text_input("Ciudad", value="Cali")
@@ -851,25 +912,25 @@ def formulario_acta():
             generar_pdf_playwright(html_final, ruta_pdf)
 
         exito = subir_a_drive_real(ruta_pdf, nombre_pdf, ID_CARPETA_DRIVE)
-        # Borrar el archivo local inmediatamente
+        
         if os.path.exists(ruta_pdf):
             os.remove(ruta_pdf)
 
-        if "tarea_actual_id" in st.session_state:
-            actualizar_estado_tarea(st.session_state.tarea_actual_id, "Finalizada")
-            del st.session_state.tarea_actual_id 
-                
-            st.rerun()
-
+        # 3. Bug corregido: Toda la logica de exito, actas y tareas agrupada al final
         if exito:
-            guardar_nuevo_consecutivo(id_numero_raw)
+            guardar_nuevo_consecutivo(st.session_state.empresa_id)
             registrar_acta_db(id_acta, st.session_state.username, nombre_proyecto_carpeta, fecha.strftime("%Y-%m-%d"), ruta_pdf, carpeta_id=None, empresa_id=st.session_state.empresa_id)
             
-            st.success(f"Acta {id_acta} enviada.")
+            # Si el acta proviene de una tarea, se actualiza aqui mismo antes de reiniciar
+            if "tarea_actual_id" in st.session_state:
+                actualizar_estado_tarea(st.session_state.tarea_actual_id, "Finalizada", st.session_state.empresa_id)
+                del st.session_state.tarea_actual_id 
+
+            st.success(f"Acta {id_acta} enviada y registrada con exito.")
             time.sleep(1)
             st.rerun()
         else:
-            st.error("Error al subir a Drive.")                
+            st.error("Error al subir el acta a Google Drive.")               
 
 # --- MANEJO DE SESION Y PERSISTENCIA ---
 
@@ -903,10 +964,15 @@ st.sidebar.title("Menu")
 st.sidebar.write(f"Usuario: **{st.session_state.username}**")
 
 if st.sidebar.button("Cerrar Sesion"):
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    
+    import datetime
+    fecha_expiracion = datetime.datetime.now() - datetime.timedelta(days=1)
     try:
-        cookie_manager.delete("token_sesion", key="del_tok")
-    except KeyError:
-        pass 
+        cookie_manager.set("token_sesion", "", expires_at=fecha_expiracion, key="forzar_cierre")
+    except Exception:
+        pass
         
     st.query_params.clear()
     
@@ -914,7 +980,8 @@ if st.sidebar.button("Cerrar Sesion"):
         del st.session_state[key]
         
     st.session_state.logged_in = False
-    time.sleep(0.5)
+    
+    time.sleep(1.5) 
     st.rerun()
 
 if st.session_state.rol == "superadmin":

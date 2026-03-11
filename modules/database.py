@@ -20,7 +20,13 @@ def init_db():
                  (id TEXT PRIMARY KEY, nombre TEXT, plan TEXT, carpeta_drive_raiz TEXT)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS usuarios 
-                 (username TEXT PRIMARY KEY, password_hash TEXT, rol TEXT, empresa_id TEXT)''')
+                    (username TEXT PRIMARY KEY, 
+                    password_hash TEXT, 
+                    rol TEXT, 
+                    empresa_id TEXT,
+                    intentos_fallidos INTEGER DEFAULT 0,
+                    bloqueado_hasta TEXT,
+                    secreto_2fa TEXT)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS carpetas_proyectos 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -49,11 +55,30 @@ def init_db():
                   fecha_limite TEXT,
                   checklist TEXT DEFAULT '',
                   empresa_id TEXT)''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS auditoria 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                  empresa_id TEXT, 
+                  usuario TEXT, 
+                  accion TEXT, 
+                  detalle TEXT, 
+                  fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
     try:
         c.execute("ALTER TABLE carpetas_proyectos ADD COLUMN empresa_id TEXT")
+        c.execute("ALTER TABLE usuarios ADD COLUMN secreto_2fa TEXT")
         c.execute("ALTER TABLE registros_actas ADD COLUMN empresa_id TEXT")
         c.execute("ALTER TABLE tareas ADD COLUMN empresa_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        c.execute("ALTER TABLE carpetas_proyectos ADD COLUMN empresa_id TEXT")
+        c.execute("ALTER TABLE registros_actas ADD COLUMN empresa_id TEXT")
+        c.execute("ALTER TABLE usuarios ADD COLUMN secreto_2fa TEXT")
+        c.execute("ALTER TABLE tareas ADD COLUMN empresa_id TEXT")
+        c.execute("ALTER TABLE usuarios ADD COLUMN intentos_fallidos INTEGER DEFAULT 0")
+        c.execute("ALTER TABLE usuarios ADD COLUMN bloqueado_hasta TEXT")
     except sqlite3.OperationalError:
         pass
         
@@ -87,7 +112,21 @@ def listar_tareas_admin(empresa_id):
     except Exception:
         df = pd.DataFrame()
     conn.close()
-    return df
+    
+def obtener_secreto_2fa(username):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT secreto_2fa FROM usuarios WHERE username = ?", (username,))
+    res = c.fetchone()
+    conn.close()
+    return res[0] if res and res[0] else None
+
+def guardar_secreto_2fa(username, secreto):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE usuarios SET secreto_2fa = ? WHERE username = ?", (secreto, username))
+    conn.commit()
+    conn.close()
 
 
 def actualizar_estado_tarea(id_tarea, nuevo_estado, empresa_id):
@@ -114,6 +153,21 @@ def obtener_usuario(username):
     res = c.fetchone()
     conn.close()
     return res
+
+def obtener_estado_bloqueo(username):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT intentos_fallidos, bloqueado_hasta FROM usuarios WHERE username = ?", (username,))
+    res = c.fetchone()
+    conn.close()
+    return res
+
+def actualizar_intentos(username, intentos, bloqueado_hasta=None):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE usuarios SET intentos_fallidos = ?, bloqueado_hasta = ? WHERE username = ?", (intentos, bloqueado_hasta, username))
+    conn.commit()
+    conn.close
 
 def guardar_nuevo_consecutivo(empresa_id):
     clave = f"ultimo_acta_{empresa_id}"
@@ -365,3 +419,29 @@ def resetear_password_superadmin(username, nueva_password):
     conn.close()
     
     return filas_afectadas > 0
+
+def registrar_auditoria(empresa_id, usuario, accion, detalle):
+    """Guarda un registro inmutable de una acción en el sistema."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    try:
+        c.execute("INSERT INTO auditoria (empresa_id, usuario, accion, detalle) VALUES (?, ?, ?, ?)",
+                  (empresa_id, usuario, accion, detalle))
+        conn.commit()
+    except Exception as e:
+        print(f"Error al registrar auditoria: {e}")
+    finally:
+        conn.close()
+
+def obtener_auditoria(empresa_id=None, limite=100):
+    """Devuelve los registros. Si es SuperAdmin (empresa_id=None), ve todo."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    if empresa_id:
+        c.execute("SELECT usuario, accion, detalle, fecha FROM auditoria WHERE empresa_id = ? ORDER BY fecha DESC LIMIT ?", (empresa_id, limite))
+    else:
+        c.execute("SELECT empresa_id, usuario, accion, detalle, fecha FROM auditoria ORDER BY fecha DESC LIMIT ?", (limite,))
+    
+    res = c.fetchall()
+    conn.close()
+    return res

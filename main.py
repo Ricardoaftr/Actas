@@ -12,6 +12,11 @@ import random
 import qrcode
 import pandas as pd
 import sqlite3
+import pyotp
+import qrcode
+from modules.database import obtener_secreto_2fa, guardar_secreto_2fa
+from modules.database import obtener_auditoria
+from modules.database import obtener_auditoria, registrar_auditoria
 import extra_streamlit_components as stx
 from modules.database import crear_empresa_db, listar_empresas_db, actualizar_plan_empresa_db
 from PIL import Image, ImageOps
@@ -132,6 +137,10 @@ def vista_superadmin_global():
                 if check_borrar_empresa:
                     if st.button("Aniquilar Empresa", type="primary"):
                         if eliminar_empresa_db(dict_empresas[empresa_a_borrar]):
+                            registrar_auditoria("GLOBAL", st.session_state.username, "ELIMINAR EMPRESA", f"Se destruyó la empresa: {empresa_a_borrar}")
+                            st.success("Empresa eliminada de la faz del servidor.")
+                            time.sleep(1)
+                            st.rerun()
                             st.success("Empresa eliminada de la faz del servidor.")
                             time.sleep(1)
                             st.rerun()
@@ -139,6 +148,18 @@ def vista_superadmin_global():
                             st.error("Error al eliminar la empresa.")
             else:
                 st.info("No hay empresas registradas.")
+            
+            st.markdown("---")
+            st.subheader("👁️ Caja Negra (Auditoría Global)")
+            st.info("Registro inmutable de todas las acciones críticas en la plataforma SaaS.")
+        
+            logs = obtener_auditoria(empresa_id=None, limite=200)
+        
+            if logs:
+                df_logs = pd.DataFrame(logs, columns=["Empresa ID", "Usuario", "Acción", "Detalle", "Fecha/Hora"])
+                st.dataframe(df_logs, use_container_width=True, hide_index=True)
+            else:
+                st.write("No hay registros de auditoría todavía.")
 
         with col_peligro2:
             st.write("Eliminar Admins")
@@ -294,44 +315,90 @@ def formulario_asignacion_tareas():
 def login_screen():
     st.title("Acceso al Sistema")
     
+    if st.session_state.get("esperando_2fa", False):
+        st.subheader("Autenticacion de Dos Pasos (2FA)")
+        user_temp = st.session_state.temp_user
+        rol_temp = st.session_state.temp_rol
+        emp_temp = st.session_state.temp_emp_id
+        
+        secreto_guardado = obtener_secreto_2fa(user_temp)
+        
+        if not secreto_guardado:
+            if "nuevo_secreto" not in st.session_state:
+                st.session_state.nuevo_secreto = pyotp.random_base32()
+            secreto_actual = st.session_state.nuevo_secreto
+            
+            uri = pyotp.totp.TOTP(secreto_actual).provisioning_uri(name=user_temp, issuer_name="Plataforma_SaaS")
+            
+            qr = qrcode.QRCode(version=1, box_size=5, border=2)
+            qr.add_data(uri)
+            qr.make(fit=True)
+            img_qr = qr.make_image(fill_color="black", back_color="white")
+            
+            st.info("Configuracion Inicial: Escanea este codigo con Google Authenticator o Authy.")
+            st.image(img_qr.get_image())
+        else:
+            secreto_actual = secreto_guardado
+            st.info("Ingresa el codigo de 6 digitos de tu aplicacion autenticadora.")
+        
+        with st.form("form_2fa"):
+            codigo = st.text_input("Codigo de 6 digitos:", max_chars=6)
+            if st.form_submit_button("Verificar y Entrar", type="primary"):
+                totp = pyotp.TOTP(secreto_actual)
+                if totp.verify(codigo):
+                    if not secreto_guardado:
+                        guardar_secreto_2fa(user_temp, secreto_actual)
+                        
+                    st.session_state.logged_in = True
+                    st.session_state.username = user_temp
+                    st.session_state.rol = rol_temp
+                    st.session_state.empresa_id = emp_temp
+                    
+                    token_val = f"{user_temp}|{rol_temp}|{emp_temp}"
+                    cookie_manager.set("token_sesion", token_val, expires_at=datetime.now() + pd.Timedelta(days=1))
+                    st.query_params["session"] = token_val
+                    
+                    st.session_state.esperando_2fa = False
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error("Codigo incorrecto o expirado.")
+        
+        if st.button("Volver atras"):
+            st.session_state.esperando_2fa = False
+            st.rerun()
+            
+        return
+    
     with st.form("login_form"):
         username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
         submit_button = st.form_submit_button("Ingresar")
 
         if submit_button:
-            exito, user, rol, empresa_id = verificar_credenciales(username, password)
+            exito, user, rol, empresa_id, mensaje_error = verificar_credenciales(username, password)
             if exito:
-                st.session_state.logged_in = True
-                st.session_state.username = user
-                st.session_state.rol = rol
-                st.session_state.empresa_id = empresa_id
-                
-                token_val = f"{user}|{rol}|{empresa_id}"
-                cookie_manager.set("token_sesion", token_val, expires_at=datetime.now() + pd.Timedelta(days=1))
-                st.query_params["session"] = token_val
-                
-                time.sleep(0.5)
-                st.rerun()
+                if rol in ["superadmin", "admin"]:
+                    st.session_state.esperando_2fa = True
+                    st.session_state.temp_user = user
+                    st.session_state.temp_rol = rol
+                    st.session_state.temp_emp_id = empresa_id
+                    st.rerun()
+                else:
+                    st.session_state.logged_in = True
+                    st.session_state.username = user
+                    st.session_state.rol = rol
+                    st.session_state.empresa_id = empresa_id
+                    
+                    token_val = f"{user}|{rol}|{empresa_id}"
+                    cookie_manager.set("token_sesion", token_val, expires_at=datetime.now() + pd.Timedelta(days=1))
+                    st.query_params["session"] = token_val
+                    
+                    time.sleep(0.5)
+                    st.rerun()
             else:
-                st.error("Usuario o contraseña incorrectos")
+                st.error(mensaje_error)
 
-    if submit_button:
-            exito, user, rol, empresa_id = verificar_credenciales(username, password)
-            if exito:
-                st.session_state.logged_in = True
-                st.session_state.username = user
-                st.session_state.rol = rol
-                st.session_state.empresa_id = empresa_id
-                
-                token_val = f"{user}|{rol}|{empresa_id}"
-                cookie_manager.set("token_sesion", token_val, expires_at=datetime.now() + pd.Timedelta(days=1))
-                st.query_params["session"] = token_val
-                
-                time.sleep(0.5)
-                st.rerun()
-            else:
-                st.error("Usuario o contraseña incorrectos")
 
 def vista_gestion_proyectos():
     st.subheader("Explorador de Proyectos y Archivos")
@@ -427,6 +494,8 @@ def vista_gestion_proyectos():
                                 if confirmacion:
                                     if st.button("Eliminar Definitivamente", key=f"del_{c[0]}", type="primary", use_container_width=True):
                                         eliminar_carpeta_db(c[0], st.session_state.empresa_id)
+                                        # REGISTRO
+                                        registrar_auditoria(st.session_state.empresa_id, st.session_state.username, "ELIMINAR CARPETA", f"Se eliminó la carpeta: {c[1]}")
                                         st.rerun()
             else:
                 st.info("No hay carpetas creadas.")
@@ -920,6 +989,7 @@ def formulario_acta():
         if exito:
             guardar_nuevo_consecutivo(st.session_state.empresa_id)
             registrar_acta_db(id_acta, st.session_state.username, nombre_proyecto_carpeta, fecha.strftime("%Y-%m-%d"), ruta_pdf, carpeta_id=None, empresa_id=st.session_state.empresa_id)
+            registrar_auditoria(st.session_state.empresa_id, st.session_state.username, "CREAR ACTA", f"Generó el acta {id_acta} para el proyecto {proyecto}")
             
             # Si el acta proviene de una tarea, se actualiza aqui mismo antes de reiniciar
             if "tarea_actual_id" in st.session_state:

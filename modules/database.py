@@ -17,7 +17,11 @@ def init_db():
     c.execute("INSERT OR IGNORE INTO configuracion (clave, valor) VALUES ('ultimo_acta', 0)")
     
     c.execute('''CREATE TABLE IF NOT EXISTS empresas 
-                 (id TEXT PRIMARY KEY, nombre TEXT, plan TEXT, carpeta_drive_raiz TEXT)''')
+                    (id TEXT PRIMARY KEY, 
+                    nombre TEXT, 
+                    plan TEXT, 
+                    carpeta_drive_raiz TEXT,
+                    modulos_activos TEXT DEFAULT 'actas,tareas,dashboard')''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS usuarios 
                     (username TEXT PRIMARY KEY, 
@@ -64,54 +68,62 @@ def init_db():
                   detalle TEXT, 
                   fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    try:
-        c.execute("ALTER TABLE carpetas_proyectos ADD COLUMN empresa_id TEXT")
-        c.execute("ALTER TABLE usuarios ADD COLUMN secreto_2fa TEXT")
-        c.execute("ALTER TABLE registros_actas ADD COLUMN empresa_id TEXT")
-        c.execute("ALTER TABLE tareas ADD COLUMN empresa_id TEXT")
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        c.execute("ALTER TABLE carpetas_proyectos ADD COLUMN empresa_id TEXT")
-        c.execute("ALTER TABLE registros_actas ADD COLUMN empresa_id TEXT")
-        c.execute("ALTER TABLE usuarios ADD COLUMN secreto_2fa TEXT")
-        c.execute("ALTER TABLE tareas ADD COLUMN empresa_id TEXT")
-        c.execute("ALTER TABLE usuarios ADD COLUMN intentos_fallidos INTEGER DEFAULT 0")
-        c.execute("ALTER TABLE usuarios ADD COLUMN bloqueado_hasta TEXT")
-    except sqlite3.OperationalError:
-        pass
-        
+    columnas_nuevas = [
+        ("carpetas_proyectos", "empresa_id TEXT"),
+        ("registros_actas", "empresa_id TEXT"),
+        ("tareas", "empresa_id TEXT"),
+        ("usuarios", "intentos_fallidos INTEGER DEFAULT 0"),
+        ("usuarios", "bloqueado_hasta TEXT"),
+        ("usuarios", "secreto_2fa TEXT"),
+        ("empresas", "modulos_activos TEXT DEFAULT 'actas,tareas,dashboard'")
+    ]
+    
+    for tabla, definicion in columnas_nuevas:
+        try:
+            c.execute(f"ALTER TABLE {tabla} ADD COLUMN {definicion}")
+        except sqlite3.OperationalError:
+            pass
+            
     conn.commit()
     conn.close()
 
-def crear_tarea_db(proyecto_id, tecnico, descripcion, prioridad, fecha_limite, checklist, empresa_id):
+def crear_tarea_db(tecnico, proyecto_id, descripcion, prioridad, fecha_limite, checklist, empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    try:
-        c.execute("""
-            INSERT INTO tareas (proyecto_id, tecnico, descripcion, prioridad, fecha_limite, estado, checklist, empresa_id)
-            VALUES (?, ?, ?, ?, ?, 'Pendiente', ?, ?)
-        """, (proyecto_id, tecnico, descripcion, prioridad, fecha_limite, checklist, empresa_id))
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error al crear tarea: {e}")
-        return False
-    finally:
-        conn.close()
+    fecha_asignacion = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    c.execute('''INSERT INTO tareas 
+                 (tecnico, proyecto_id, descripcion, prioridad, estado, fecha_asignacion, fecha_limite, checklist, empresa_id) 
+                 VALUES (?, ?, ?, ?, 'Pendiente', ?, ?, ?, ?)''', 
+              (tecnico, proyecto_id, descripcion, prioridad, fecha_asignacion, fecha_limite, checklist, empresa_id))
+    
+    conn.commit()
+    conn.close()
+
+def obtener_modulos_empresa(empresa_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT modulos_activos FROM empresas WHERE id = ?", (empresa_id,))
+    res = c.fetchone()
+    conn.close()
+    if res and res[0]:
+        return res[0].split(',')
+    return ['actas', 'tareas']
 
 def listar_tareas_admin(empresa_id):
     conn = sqlite3.connect(DB_PATH)
-    query = """SELECT t.*, c.nombre 
-               FROM tareas t 
-               LEFT JOIN carpetas_proyectos c ON t.proyecto_id = c.id
-               WHERE t.empresa_id = ?"""
-    try:
-        df = pd.read_sql_query(query, conn, params=(empresa_id,))
-    except Exception:
-        df = pd.DataFrame()
+    c = conn.cursor()
+    c.execute('''SELECT t.id, t.tecnico, c.nombre, t.descripcion, t.prioridad, t.estado, t.fecha_asignacion, t.fecha_limite, t.checklist 
+                 FROM tareas t 
+                 LEFT JOIN carpetas_proyectos c ON t.proyecto_id = c.id 
+                 WHERE t.empresa_id = ?''', (empresa_id,))
+    
+    res = c.fetchall()
     conn.close()
+    
+    if res:
+        return pd.DataFrame(res, columns=["ID", "Tecnico", "Proyecto", "Descripcion", "Prioridad", "Estado", "Fecha Asignacion", "Fecha Limite", "Checklist"])
+    return None
     
 def obtener_secreto_2fa(username):
     conn = sqlite3.connect(DB_PATH)
@@ -153,6 +165,21 @@ def obtener_usuario(username):
     res = c.fetchone()
     conn.close()
     return res
+
+def listar_tareas_tecnico(tecnico_username, empresa_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''SELECT t.id, c.nombre, t.descripcion, t.prioridad, t.estado, t.fecha_asignacion, t.fecha_limite, t.checklist 
+                 FROM tareas t 
+                 LEFT JOIN carpetas_proyectos c ON t.proyecto_id = c.id 
+                 WHERE t.tecnico = ? AND t.empresa_id = ?''', (tecnico_username, empresa_id))
+    
+    res = c.fetchall()
+    conn.close()
+    
+    if res:
+        return pd.DataFrame(res, columns=["ID", "Proyecto", "Descripcion", "Prioridad", "Estado", "Fecha Asignacion", "Fecha Limite", "Checklist"])
+    return None
 
 def obtener_estado_bloqueo(username):
     conn = sqlite3.connect(DB_PATH)

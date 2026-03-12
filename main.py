@@ -14,6 +14,8 @@ import pandas as pd
 import sqlite3
 import pyotp
 import qrcode
+from modules.database import obtener_modulos_empresa
+from modules.database import listar_tareas_tecnico
 from modules.database import obtener_secreto_2fa, guardar_secreto_2fa
 from modules.database import obtener_auditoria
 from modules.database import obtener_auditoria, registrar_auditoria
@@ -150,7 +152,7 @@ def vista_superadmin_global():
                 st.info("No hay empresas registradas.")
             
             st.markdown("---")
-            st.subheader("👁️ Caja Negra (Auditoría Global)")
+            st.subheader("Auditoría Global")
             st.info("Registro inmutable de todas las acciones críticas en la plataforma SaaS.")
         
             logs = obtener_auditoria(empresa_id=None, limite=200)
@@ -274,8 +276,8 @@ def formulario_asignacion_tareas():
     st.subheader(" Gestión de Tareas Activas")
     
     df_tareas = listar_tareas_admin(st.session_state.empresa_id)
-    if not df_tareas.empty:
-        activas = df_tareas[df_tareas['estado'] != 'Finalizada']
+    if isinstance(df_tareas, pd.DataFrame) and not df_tareas.empty:
+        activas = df_tareas[df_tareas['Estado'] != 'Finalizada']
         
         if not activas.empty:
             for _, tarea in activas.iterrows():
@@ -283,8 +285,8 @@ def formulario_asignacion_tareas():
                     c_info, c_reasignar, c_eliminar = st.columns([4, 2, 1])
                     
                     with c_info:
-                        st.write(f"**{tarea['descripcion']}**")
-                        st.caption(f"Sede: {tarea['nombre']} | Técnico: {tarea['tecnico']} | Estado: {tarea['estado']}")
+                        st.write(f"**{tarea['Descripcion']}**")
+                        st.caption(f"Sede: {tarea['Proyecto']} | Técnico: {tarea['Tecnico']} | Estado: {tarea['Estado']}")
                         
                     with c_reasignar:
                         nuevo_tec = st.selectbox(
@@ -292,13 +294,13 @@ def formulario_asignacion_tareas():
                             options=nombres_tecnicos, 
                             index=None, 
                             placeholder="Seleccionar técnico para reasignar...",
-                            key=f"re_sel_{tarea['id']}", 
+                            key=f"re_sel_{tarea['ID']}", 
                             label_visibility="collapsed"
                         )
                         
-                        if st.button("Reasignar", key=f"re_btn_{tarea['id']}", use_container_width=True):
+                        if st.button("Reasignar", key=f"re_btn_{tarea['ID']}", use_container_width=True):
                             if nuevo_tec:
-                                reasignar_tarea_db(tarea['id'], nuevo_tec, st.session_state.empresa_id)
+                                reasignar_tarea_db(tarea['ID'], nuevo_tec, st.session_state.empresa_id)
                                 st.success(f"Reasignada a {nuevo_tec}")
                                 time.sleep(0.5)
                                 st.rerun()
@@ -306,11 +308,58 @@ def formulario_asignacion_tareas():
                                 st.warning("Por favor, selecciona un técnico primero.")
                                 
                     with c_eliminar:
-                        if st.button("🗑️ Eliminar", key=f"del_{tarea['id']}", type="primary", use_container_width=True):
-                            eliminar_tarea_db(tarea['id'],st.session_state.empresa_id)
+                        if st.button("🗑️ Eliminar", key=f"del_{tarea['ID']}", type="primary", use_container_width=True):
+                            eliminar_tarea_db(tarea['ID'],st.session_state.empresa_id)
                             st.rerun()
         else:
             st.info("No hay tareas pendientes ni en proceso.")
+
+def vista_tareas_tecnico():
+    st.header("Mis Tareas Asignadas")
+    
+    df_tareas = listar_tareas_tecnico(st.session_state.username, st.session_state.empresa_id)
+    
+    if isinstance(df_tareas, pd.DataFrame) and not df_tareas.empty:
+        activas = df_tareas[df_tareas['Estado'] != 'Finalizada']
+        finalizadas = df_tareas[df_tareas['Estado'] == 'Finalizada']
+        
+        st.subheader("Tareas Activas")
+        if not activas.empty:
+            for _, tarea in activas.iterrows():
+                with st.expander(f"{tarea['Proyecto']} - {tarea['Prioridad']}"):
+                    st.write(f"**Descripcion:** {tarea['Descripcion']}")
+                    st.write(f"**Fecha Limite:** {tarea['Fecha Limite']}")
+                    st.write(f"**Estado Actual:** {tarea['Estado']}")
+                    
+                    todos_marcados = True
+                    if tarea['Checklist']:
+                        st.write("**Checklist de requisitos:**")
+                        items = [i.strip() for i in str(tarea['Checklist']).split('\n')]
+                        for idx, item in enumerate(items):
+                            if item:
+                                marcado = st.checkbox(item, key=f"chk_{tarea['ID']}_{idx}")
+                                if not marcado:
+                                    todos_marcados = False
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if tarea['Estado'] == 'Pendiente':
+                            if st.button("Iniciar Tarea", key=f"iniciar_{tarea['ID']}", disabled=not todos_marcados, use_container_width=True):
+                                actualizar_estado_tarea(tarea['ID'], 'En Proceso', st.session_state.empresa_id)
+                                st.rerun()
+                    with col2:
+                        if tarea['Estado'] == 'En Proceso':
+                            if st.button("Finalizar Tarea", key=f"fin_{tarea['ID']}", disabled=not todos_marcados, use_container_width=True):
+                                actualizar_estado_tarea(tarea['ID'], 'Finalizada',st.session_state.empresa_id)
+                                st.rerun()
+        else:
+            st.info("No tienes tareas activas en este momento.")
+            
+        st.subheader("Historial de Tareas Finalizadas")
+        if not finalizadas.empty:
+            st.dataframe(finalizadas, use_container_width=True)
+    else:
+        st.info("No tienes tareas asignadas.")
 
 def login_screen():
     st.title("Acceso al Sistema")
@@ -715,7 +764,7 @@ def vista_mis_tareas_tecnico():
                     with c1:
                         st.write(f"### Sede: {tarea['nombre']}")
                         st.write(f"**Tarea:** {tarea['descripcion']}")
-                        st.caption(f"Prioridad: {tarea['prioridad']} | Límite: {tarea['fecha_limite']}")
+                        st.caption(f"Prioridad: {tarea['Prioridad']} | Límite: {tarea['Fecha_limite']}")
                         
                         # Lectura robusta evitar errores 'NaN'
                         valor_chk = tarea['checklist'] if 'checklist' in tarea else ""
@@ -729,7 +778,7 @@ def vista_mis_tareas_tecnico():
                             st.markdown("---")
                             st.write("**Checklist de Preparación:**")
                             for item in items_checklist:
-                                check = st.checkbox(item, key=f"chk_{tarea['id']}_{item}")
+                                check = st.checkbox(item, key=f"chk_{tarea['ID']}_{item}")
                                 if not check:
                                     todo_marcado = False
                         
@@ -737,15 +786,15 @@ def vista_mis_tareas_tecnico():
                         st.write(f"Estado: **{tarea['estado']}**")
                         
                         if tarea['estado'] == "Pendiente":
-                            if st.button("Iniciar Trabajo", disabled=not todo_marcado, key=f"start_{tarea['id']}", use_container_width=True):
-                                actualizar_estado_tarea(tarea['id'], "En Proceso", st.session_state.empresa_id)
+                            if st.button("Iniciar Trabajo", disabled=not todo_marcado, key=f"start_{tarea['ID']}", use_container_width=True):
+                                actualizar_estado_tarea(tarea['ID'], "En Proceso", st.session_state.empresa_id)
                                 st.success("Tarea iniciada")
                                 st.rerun()
                                 
                         elif tarea['estado'] == "En Proceso":
-                            if st.button("Realizar Acta", key=f"do_{tarea['id']}", type="primary", use_container_width=True):
+                            if st.button("Realizar Acta", key=f"do_{tarea['ID']}", type="primary", use_container_width=True):
                                 st.session_state.proyecto_prellenado = tarea['nombre']
-                                st.session_state.tarea_actual_id = tarea['id'] 
+                                st.session_state.tarea_actual_id = tarea['ID'] 
                                 st.info(f"Ve a 'Formulario de Acta'. Sede {tarea['nombre']} seleccionada.")
         else:
             st.info("No tienes tareas pendientes.")
@@ -1061,22 +1110,27 @@ if st.session_state.rol == "superadmin":
     if opcion == "Panel Global SaaS":
         vista_superadmin_global()
 
-elif st.session_state.rol == "admin":
-    opciones_menu = ["Consola de Administracion", "Asignar Tareas", "Historial de Actas"] 
-    opcion = st.sidebar.selectbox("Navegacion", opciones_menu)
+if st.session_state.rol in ["admin", "tecnico"]:
+    modulos = obtener_modulos_empresa(st.session_state.empresa_id)
+    opciones_menu = []
     
-    if opcion == "Consola de Administracion":
-        admin_dashboard()
-    elif opcion == "Asignar Tareas":
-        formulario_asignacion_tareas()
-    elif opcion == "Historial de Actas":
-        vista_historial_actas()
+    if "actas" in modulos:
+        opciones_menu.append("Generar Acta")
+          
+    if "dashboard" in modulos and st.session_state.rol == "admin":
+        opciones_menu.append("Dashboard")
 
-elif st.session_state.rol == "tecnico":
-    opciones_menu = ["Mis Tareas", "Formulario de Acta"]
-    opcion = st.sidebar.selectbox("Navegacion", opciones_menu)
+    if "tareas" in modulos:
+        opciones_menu.append("Tareas")
+        
+    seleccion = st.sidebar.radio("Navegacion", opciones_menu)
     
-    if opcion == "Mis Tareas":
-        vista_mis_tareas_tecnico()
-    elif opcion == "Formulario de Acta":
+    if seleccion == "Generar Acta":
         formulario_acta()
+    elif seleccion == "Tareas":
+        if st.session_state.rol == "admin":
+            formulario_asignacion_tareas()
+        elif st.session_state.rol == "tecnico":
+            vista_tareas_tecnico()
+    elif seleccion == "Dashboard":
+        admin_dashboard()

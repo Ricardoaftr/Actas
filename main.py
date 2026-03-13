@@ -15,6 +15,7 @@ import sqlite3
 import pyotp
 import qrcode
 from modules.database import obtener_modulos_empresa
+from modules.asistente import obtener_respuesta_ia
 from modules.database import listar_tareas_tecnico
 from modules.database import obtener_secreto_2fa, guardar_secreto_2fa
 from modules.database import obtener_auditoria
@@ -276,43 +277,56 @@ def formulario_asignacion_tareas():
     st.subheader(" Gestión de Tareas Activas")
     
     df_tareas = listar_tareas_admin(st.session_state.empresa_id)
+
     if isinstance(df_tareas, pd.DataFrame) and not df_tareas.empty:
-        activas = df_tareas[df_tareas['Estado'] != 'Finalizada']
-        
-        if not activas.empty:
-            for _, tarea in activas.iterrows():
-                with st.container(border=True):
-                    c_info, c_reasignar, c_eliminar = st.columns([4, 2, 1])
-                    
-                    with c_info:
-                        st.write(f"**{tarea['Descripcion']}**")
-                        st.caption(f"Sede: {tarea['Proyecto']} | Técnico: {tarea['Tecnico']} | Estado: {tarea['Estado']}")
+            activas = df_tareas[df_tareas['Estado'] != 'Finalizada']
+            finalizadas = df_tareas[df_tareas['Estado'] == 'Finalizada']
+            
+            st.subheader("Tareas Activas")
+            if not activas.empty:
+                for _, tarea in activas.iterrows():
+                    with st.container(border=True):
+                        c_info, c_reasignar, c_eliminar = st.columns([4, 2, 1])
                         
-                    with c_reasignar:
-                        nuevo_tec = st.selectbox(
-                            "Reasignar a:", 
-                            options=nombres_tecnicos, 
-                            index=None, 
-                            placeholder="Seleccionar técnico para reasignar...",
-                            key=f"re_sel_{tarea['ID']}", 
-                            label_visibility="collapsed"
-                        )
-                        
-                        if st.button("Reasignar", key=f"re_btn_{tarea['ID']}", use_container_width=True):
-                            if nuevo_tec:
-                                reasignar_tarea_db(tarea['ID'], nuevo_tec, st.session_state.empresa_id)
-                                st.success(f"Reasignada a {nuevo_tec}")
-                                time.sleep(0.5)
+                        with c_info:
+                            st.write(f"**{tarea['Descripcion']}**")
+                            st.caption(f"Sede: {tarea['Proyecto']} | Técnico: {tarea['Tecnico']} | Estado: {tarea['Estado']}")
+                            
+                        with c_reasignar:
+                            nuevo_tec = st.selectbox(
+                                "Reasignar a:", 
+                                options=nombres_tecnicos, 
+                                index=None, 
+                                placeholder="Seleccionar técnico para reasignar...",
+                                key=f"re_sel_{tarea['ID']}", 
+                                label_visibility="collapsed"
+                            )
+                            
+                            if st.button("Reasignar", key=f"re_btn_{tarea['ID']}", use_container_width=True):
+                                if nuevo_tec:
+                                    reasignar_tarea_db(tarea['ID'], nuevo_tec, st.session_state.empresa_id)
+                                    st.success(f"Reasignada a {nuevo_tec}")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                                else:
+                                    st.warning("Por favor, selecciona un técnico primero.")
+                                    
+                        with c_eliminar:
+                            if st.button("Eliminar", key=f"del_{tarea['ID']}", type="primary", use_container_width=True):
+                                eliminar_tarea_db(tarea['ID'],st.session_state.empresa_id)
                                 st.rerun()
-                            else:
-                                st.warning("Por favor, selecciona un técnico primero.")
-                                
-                    with c_eliminar:
-                        if st.button("🗑️ Eliminar", key=f"del_{tarea['ID']}", type="primary", use_container_width=True):
-                            eliminar_tarea_db(tarea['ID'],st.session_state.empresa_id)
-                            st.rerun()
-        else:
-            st.info("No hay tareas pendientes ni en proceso.")
+            else:
+                st.info("No hay tareas pendientes ni en proceso.")
+                
+            st.subheader("Historial de Tareas Finalizadas")
+            if not finalizadas.empty:
+                st.dataframe(finalizadas, use_container_width=True)
+            else:
+                st.info("Aun no hay tareas finalizadas.")
+                
+    else:
+         st.info("No hay tareas registradas en el sistema.")
+    
 
 def vista_tareas_tecnico():
     st.header("Mis Tareas Asignadas")
@@ -360,6 +374,34 @@ def vista_tareas_tecnico():
             st.dataframe(finalizadas, use_container_width=True)
     else:
         st.info("No tienes tareas asignadas.")
+
+def vista_asistente_ia():
+    st.header("Asistente Tecnico IA")
+    st.write("Realiza consultas sobre manuales, instalaciones y configuraciones.")
+
+    if "mensajes_chat" not in st.session_state:
+        st.session_state.mensajes_chat = []
+
+    for mensaje in st.session_state.mensajes_chat:
+        with st.chat_message(mensaje["role"]):
+            st.markdown(mensaje["content"])
+
+    if prompt := st.chat_input("Escribe tu pregunta detallada aqui..."):
+        st.chat_message("user").markdown(prompt)
+        st.session_state.mensajes_chat.append({"role": "user", "content": prompt})
+
+        with st.chat_message("assistant"):
+            with st.spinner("Consultando manuales locales..."):
+                respuesta, fuentes = obtener_respuesta_ia(prompt)
+                
+                if fuentes != "Error" and fuentes != "":
+                    respuesta_completa = f"{respuesta}\n\n*Fuentes consultadas: {fuentes}*"
+                else:
+                    respuesta_completa = respuesta
+
+                st.markdown(respuesta_completa)
+        
+        st.session_state.mensajes_chat.append({"role": "assistant", "content": respuesta_completa})
 
 def login_screen():
     st.title("Acceso al Sistema")
@@ -1122,15 +1164,26 @@ if st.session_state.rol in ["admin", "tecnico"]:
 
     if "tareas" in modulos:
         opciones_menu.append("Tareas")
+
+    if "asistente ia" in modulos and st.session_state.rol == "tecnico":
+        opciones_menu.append("Asistente IA")
         
     seleccion = st.sidebar.radio("Navegacion", opciones_menu)
     
     if seleccion == "Generar Acta":
         formulario_acta()
+        
     elif seleccion == "Tareas":
         if st.session_state.rol == "admin":
             formulario_asignacion_tareas()
         elif st.session_state.rol == "tecnico":
             vista_tareas_tecnico()
+            
     elif seleccion == "Dashboard":
         admin_dashboard()
+        
+    elif seleccion == "Asistente IA":
+        if st.session_state.rol == "tecnico":
+            vista_asistente_ia()
+        else:
+            st.warning("🔒 Esta herramienta es de uso exclusivo para el personal técnico.")

@@ -103,12 +103,25 @@ def crear_tarea_db(tecnico, proyecto_id, descripcion, prioridad, fecha_limite, c
 def obtener_modulos_empresa(empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT modulos_activos FROM empresas WHERE id = ?", (empresa_id,))
+    c.execute("SELECT plan, modulos_activos FROM empresas WHERE id = ?", (empresa_id,))
     res = c.fetchone()
     conn.close()
-    if res and res[0]:
-        return res[0].split(',')
-    return ['actas', 'tareas']
+    
+    if res:
+        plan_empresa = str(res[0]).lower()
+        modulos_personalizados = res[1].split(',') if res[1] else []
+        
+        if "basico" in plan_empresa or "básico" in plan_empresa:
+            return ['actas']
+        
+        elif plan_empresa == "plus":
+            return ['actas', 'tareas', 'dashboard']
+            
+        elif plan_empresa == "enterprise":
+            modulos_base = ['actas', 'tareas', 'dashboard']
+            return list(set(modulos_base + modulos_personalizados))
+            
+    return ['actas']
 
 def listar_tareas_admin(empresa_id):
     conn = sqlite3.connect(DB_PATH)

@@ -118,7 +118,8 @@ def obtener_modulos_empresa(empresa_id):
             return ['actas', 'tareas', 'dashboard']
             
         elif plan_empresa == "enterprise":
-            modulos_base = ['actas', 'tareas', 'dashboard']
+            # Agregamos 'asistente ia' directamente a los módulos base del plan Enterprise
+            modulos_base = ['actas', 'tareas', 'dashboard', 'asistente ia', 'calculadora led']
             return list(set(modulos_base + modulos_personalizados))
             
     return ['actas']

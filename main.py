@@ -14,6 +14,7 @@ import pandas as pd
 import sqlite3
 import pyotp
 import qrcode
+from modules.calculadora import calcular_led
 from modules.database import obtener_modulos_empresa
 from modules.asistente import obtener_respuesta_ia
 from modules.database import listar_tareas_tecnico
@@ -1153,7 +1154,9 @@ if st.session_state.rol == "superadmin":
         vista_superadmin_global()
 
 if st.session_state.rol in ["admin", "tecnico"]:
-    modulos = obtener_modulos_empresa(st.session_state.empresa_id)
+    modulos_crudos = obtener_modulos_empresa(st.session_state.empresa_id)
+    modulos = [str(m).strip().lower() for m in modulos_crudos]
+    
     opciones_menu = []
     
     if "actas" in modulos:
@@ -1164,6 +1167,7 @@ if st.session_state.rol in ["admin", "tecnico"]:
 
     if "tareas" in modulos:
         opciones_menu.append("Tareas")
+        
 
     if "asistente ia" in modulos and st.session_state.rol == "tecnico":
         opciones_menu.append("Asistente IA")
@@ -1182,8 +1186,11 @@ if st.session_state.rol in ["admin", "tecnico"]:
     elif seleccion == "Dashboard":
         admin_dashboard()
         
+    elif seleccion == "Calculadora LED":
+        calcular_led()
+        
     elif seleccion == "Asistente IA":
         if st.session_state.rol == "tecnico":
             vista_asistente_ia()
         else:
-            st.warning("🔒 Esta herramienta es de uso exclusivo para el personal técnico.")
+            st.warning(" Esta herramienta es de uso exclusivo para el personal técnico.")

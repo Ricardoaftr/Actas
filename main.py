@@ -1171,6 +1171,9 @@ if st.session_state.rol in ["admin", "tecnico"]:
 
     if "asistente ia" in modulos and st.session_state.rol == "tecnico":
         opciones_menu.append("Asistente IA")
+
+    if "calculadora led" in modulos:
+        opciones_menu.append("Calculadora LED")
         
     seleccion = st.sidebar.radio("Navegacion", opciones_menu)
     
@@ -1188,7 +1191,7 @@ if st.session_state.rol in ["admin", "tecnico"]:
         
     elif seleccion == "Calculadora LED":
         calcular_led()
-        
+
     elif seleccion == "Asistente IA":
         if st.session_state.rol == "tecnico":
             vista_asistente_ia()

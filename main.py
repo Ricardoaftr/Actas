@@ -855,7 +855,6 @@ def formulario_acta():
         st.subheader("1. Datos Generales")
         c1, c2 = st.columns(2)
         with c1:
-            # 1. Obtenemos el ID enviando el empresa_id
             id_acta = obtener_siguiente_id(st.session_state.empresa_id)
             st.text_input("ID Acta", value=id_acta, disabled=True)
             fecha = st.date_input("Fecha", datetime.today())
@@ -897,14 +896,20 @@ def formulario_acta():
             nombre_contratista = st.text_input("Nombre del Colaborador", value=st.session_state.username, disabled=True)
 
         st.subheader("4. Firma de Recibido")
+        st.caption("Firma en el recuadro blanco usando tu dedo o el mouse:")
+        
+        # --- EL RECUADRO BLANCO FORZADO ---
+        # Se fija el ancho en 600px para evitar el colapso del layout='wide'
+        # Se cambia la 'key' para borrar la memoria corrupta del navegador
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)", 
-            stroke_width=2,
+            stroke_width=2, 
             stroke_color="#000000",
-            background_color="#EEEEEE",
+            background_color="#FFFFFF", 
             height=150,
+            width=600,  
             drawing_mode="freedraw",
-            key="canvas_firma",
+            key="canvas_firma_app_original", 
             display_toolbar=True
         )
 
@@ -952,18 +957,23 @@ def formulario_acta():
             try:
                 img_data = canvas_result.image_data
                 img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
+                
                 bbox = img.getbbox()
                 if bbox:
                     img = img.crop(bbox)
+                    
+                    fondo_blanco = Image.new("RGB", img.size, (255, 255, 255))
+                    fondo_blanco.paste(img, mask=img.split()[3])
+                    
                     buffered = io.BytesIO()
-                    img.save(buffered, format="PNG")
+                    fondo_blanco.save(buffered, format="PNG")
                     img_str = base64.b64encode(buffered.getvalue()).decode()
                     firma_b64 = f"data:image/png;base64,{img_str}"
-            except:
-                pass
+            except Exception as e:
+                st.warning(f"Error procesando firma: {e}")
 
         if not firma_b64:
-            st.error("Firma obligatoria.")
+            st.error("Firma obligatoria. Por favor, dibuje su firma en el recuadro blanco.")
             st.stop()
 
         lista_imagenes_b64 = []
@@ -1077,13 +1087,11 @@ def formulario_acta():
         if os.path.exists(ruta_pdf):
             os.remove(ruta_pdf)
 
-        # 3. Bug corregido: Toda la logica de exito, actas y tareas agrupada al final
         if exito:
             guardar_nuevo_consecutivo(st.session_state.empresa_id)
             registrar_acta_db(id_acta, st.session_state.username, nombre_proyecto_carpeta, fecha.strftime("%Y-%m-%d"), ruta_pdf, carpeta_id=None, empresa_id=st.session_state.empresa_id)
             registrar_auditoria(st.session_state.empresa_id, st.session_state.username, "CREAR ACTA", f"Generó el acta {id_acta} para el proyecto {proyecto}")
             
-            # Si el acta proviene de una tarea, se actualiza aqui mismo antes de reiniciar
             if "tarea_actual_id" in st.session_state:
                 actualizar_estado_tarea(st.session_state.tarea_actual_id, "Finalizada", st.session_state.empresa_id)
                 del st.session_state.tarea_actual_id 
@@ -1092,7 +1100,7 @@ def formulario_acta():
             time.sleep(1)
             st.rerun()
         else:
-            st.error("Error al subir el acta a Google Drive.")               
+            st.error("Error al subir el acta a Google Drive.")              
 
 # --- MANEJO DE SESION Y PERSISTENCIA ---
 

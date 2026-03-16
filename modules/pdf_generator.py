@@ -30,8 +30,22 @@ def generar_pdf_playwright(html_final, ruta_pdf):
         
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context()
+        page = context.new_page()
+        
         page.set_content(html_final)
-        page.wait_for_load_state("networkidle") 
-        page.pdf(path=ruta_pdf, format="A4", print_background=True)
+        
+        try:
+            page.wait_for_load_state("networkidle", timeout=5000)
+            page.wait_for_timeout(1000) 
+        except:
+            pass 
+            
+        page.pdf(
+            path=ruta_pdf, 
+            format="A4", 
+            print_background=True,
+            margin={"top": "20px", "bottom": "20px", "left": "20px", "right": "20px"}
+        )
+        
         browser.close()

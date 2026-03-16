@@ -87,6 +87,15 @@ def init_db():
     conn.commit()
     conn.close()
 
+def conectar_db():
+    conn = sqlite3.connect(
+        "data/database.sqlite", 
+        timeout=15.0, 
+        check_same_thread=False
+    )
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
 def crear_tarea_db(tecnico, proyecto_id, descripcion, prioridad, fecha_limite, checklist, empresa_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import Actas from './pages/Actas'
 import Login from './pages/Login'
 import Superadmin from './pages/Superadmin'
+import Dashboard from './pages/Dashboard'
+import Tareas from './pages/Tareas'
 
 function App() {
   const [usuario, setUsuario] = useState(null)
@@ -30,6 +32,22 @@ function App() {
 
   const rol = usuario.rol ? usuario.rol.toLowerCase() : ''
 
+  // Esta función decide qué clases de Tailwind CSS aplicar dependiendo de si la ruta está activa o no
+  const linkClasses = ({ isActive }) =>
+    `block p-3 rounded-lg transition font-medium border-l-4 ${
+      isActive 
+        ? 'bg-gray-800 border-blue-500 text-white' // Activo: Fondo oscuro, borde azul, texto blanco
+        : 'border-transparent text-gray-300 hover:bg-gray-800 hover:text-white' // Inactivo: Sin borde, gris claro
+    }`
+
+  // Clase especial para el botón del Superadmin (mantiene el tono morado)
+  const superadminLinkClasses = ({ isActive }) =>
+    `block p-3 rounded-lg transition font-medium border-l-4 ${
+      isActive 
+        ? 'bg-purple-800 border-purple-400 text-white shadow-inner' 
+        : 'bg-purple-900 border-transparent text-gray-200 hover:bg-purple-800 hover:text-white'
+    }`
+
   return (
     <BrowserRouter>
       <div className="flex h-screen bg-gray-50 font-sans">
@@ -40,27 +58,40 @@ function App() {
           </div>
           
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+            {/* MENÚ EXCLUSIVO SUPERADMIN */}
             {rol === 'superadmin' && (
-              <Link to="/superadmin" className="block p-3 rounded-lg bg-purple-900 hover:bg-purple-800 transition font-medium">Panel Global (SaaS)</Link>
+              <NavLink to="/superadmin" className={superadminLinkClasses}>
+                Panel Global (SaaS)
+              </NavLink>
             )}
 
-            {rol !== 'superadmin' && (
+            {/* MENÚ EXCLUSIVO ADMIN */}
+            {rol === 'admin' && (
               <>
-                <Link to="/actas" className="block p-3 rounded-lg hover:bg-gray-800 transition font-medium">Generar Acta</Link>
-                
-                {rol === 'admin' && (
-                  <Link to="/dashboard" className="block p-3 rounded-lg hover:bg-gray-800 transition font-medium">Dashboard</Link>
-                )}
+                <NavLink to="/dashboard" className={linkClasses}>
+                  Dashboard
+                </NavLink>
+                <NavLink to="/tareas" className={linkClasses}>
+                  Asignar Tareas
+                </NavLink>
+              </>
+            )}
 
-                <Link to="/tareas" className="block p-3 rounded-lg hover:bg-gray-800 transition font-medium">
-                  {rol === 'admin' ? 'Asignar Tareas' : 'Mis Tareas'}
-                </Link>
-
-                {rol === 'tecnico' && (
-                  <Link to="/asistente" className="block p-3 rounded-lg hover:bg-gray-800 transition font-medium">Asistente IA</Link>
-                )}
-
-                <Link to="/calculadora" className="block p-3 rounded-lg hover:bg-gray-800 transition font-medium">Calculadora LED</Link>
+            {/* MENÚ EXCLUSIVO TÉCNICO */}
+            {rol === 'tecnico' && (
+              <>
+                <NavLink to="/actas" className={linkClasses}>
+                  Generar Acta
+                </NavLink>
+                <NavLink to="/tareas" className={linkClasses}>
+                  Mis Tareas
+                </NavLink>
+                <NavLink to="/asistente" className={linkClasses}>
+                  Asistente IA
+                </NavLink>
+                <NavLink to="/calculadora" className={linkClasses}>
+                  Calculadora LED
+                </NavLink>
               </>
             )}
           </nav>
@@ -70,7 +101,7 @@ function App() {
               Usuario: <span className="text-white font-bold">{usuario.nombre}</span><br/>
               Rol: <span className="text-blue-400 uppercase text-xs">{rol}</span>
             </div>
-            <button onClick={handleLogout} className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded text-sm font-bold transition">
+            <button onClick={handleLogout} className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded text-sm font-bold transition shadow-sm">
               Cerrar Sesión
             </button>
           </div>
@@ -79,7 +110,10 @@ function App() {
         <main className="flex-1 p-8 overflow-y-auto">
           <Routes>
             <Route path="/" element={
-              rol === 'superadmin' ? <Navigate to="/superadmin" /> : (
+              rol === 'superadmin' ? <Navigate to="/superadmin" /> :
+              rol === 'admin' ? <Navigate to="/dashboard" /> :
+              rol === 'tecnico' ? <Navigate to="/actas" /> : // Redirección directa al técnico también
+              (
                 <div>
                   <h1 className="text-3xl font-bold text-gray-800">Bienvenido, {usuario.nombre}</h1>
                   <p className="mt-2 text-gray-600">Selecciona una herramienta en el panel izquierdo.</p>
@@ -87,23 +121,26 @@ function App() {
               )
             } />
             
+            {/* RUTAS SUPERADMIN */}
             {rol === 'superadmin' && (
               <Route path="/superadmin" element={<Superadmin />} />
             )}
             
-            {rol !== 'superadmin' && (
+            {/* RUTAS ADMIN */}
+            {rol === 'admin' && (
+              <>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/tareas" element={<Tareas />} />
+              </>
+            )}
+
+            {/* RUTAS TÉCNICO */}
+            {rol === 'tecnico' && (
               <>
                 <Route path="/actas" element={<Actas />} />
-                <Route path="/tareas" element={<h1 className="text-2xl font-bold">Módulo de Tareas (En construcción)</h1>} />
+                <Route path="/tareas" element={<Tareas />} />
+                <Route path="/asistente" element={<h1 className="text-2xl font-bold">Asistente IA (En construcción)</h1>} />
                 <Route path="/calculadora" element={<h1 className="text-2xl font-bold">Calculadora LED (En construcción)</h1>} />
-                
-                {rol === 'admin' && (
-                  <Route path="/dashboard" element={<h1 className="text-2xl font-bold">Dashboard Admin (En construcción)</h1>} />
-                )}
-                
-                {rol === 'tecnico' && (
-                  <Route path="/asistente" element={<h1 className="text-2xl font-bold">Asistente IA (En construcción)</h1>} />
-                )}
               </>
             )}
             
